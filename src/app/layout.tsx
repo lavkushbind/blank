@@ -1,19 +1,9 @@
-import type {Metadata} from 'next';
-import { Inter } from 'next/font/google';
-import './globals.css';
-import { Toaster } from "@/components/ui/toaster";
-import { cn } from '@/lib/utils';
-import FacebookPixel from "@/components/fb/FacebookPixel";
-const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
+﻿import type { Metadata } from "next";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: 'Blanklearn - Your Child\'s After-School Studies, Managed.',
-  description: 'Interactive Live Classes in Small Groups (Max 8 Students). Homework help, concept clearing, and skill building—all inside one app.',
-  
-  // --- YE LINE ADD KAREIN (Favicon ke liye) ---
-  icons: {
-    icon: '/logo.jpg',
-  },
+  title: "BlankLearn • India's First 1:5 Micro-Batch Online Tuition (CBSE & ICSE)",
+  description: "Strictly 1 Teacher & 5 Students. In-Browser ML Attention Tracking, Mandatory Post-Class Voice Remarks, and 100% Parent Transparency.",
 };
 
 export default function RootLayout({
@@ -22,12 +12,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="scroll-smooth">
-      <body className={cn("font-sans antialiased", inter.variable)}>
-                  <FacebookPixel />  {/* <--- YE LINE ADD KARNI HAI */}
-
-          {children}
-          <Toaster />
+    <html lang="en" className="light">
+      <body className="bg-slate-50 text-slate-900 min-h-screen selection:bg-indigo-100 selection:text-indigo-900">
+        {children}
       </body>
     </html>
   );

@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -5,98 +6,89 @@
 
 @layer base {
   :root {
-    --background: 220 40% 98%;
-    --foreground: 224 71.4% 4.1%;
-    --card: 0 0% 100%;
-    --card-foreground: 224 71.4% 4.1%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 224 71.4% 4.1%;
-    --primary: 221 83% 53%; /* #3F51B5 */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 13% 91%;
-    --secondary-foreground: 220 9% 45%;
-    --muted: 220 13% 91%;
-    --muted-foreground: 220 9% 45%;
-    --accent: 45 100% 51%; /* #FFC107 */
-    --accent-foreground: 224 71.4% 4.1%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 89%;
-    --input: 220 13% 89%;
-    --ring: 221 83% 53%;
-    --radius: 0.8rem;
-  }
-
-  .dark {
-    --background: 224 71.4% 4.1%;
-    --foreground: 210 20% 98%;
-    --card: 224 71.4% 4.1%;
-    --card-foreground: 210 20% 98%;
-    --popover: 224 71.4% 4.1%;
-    --popover-foreground: 210 20% 98%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 215 28% 17%;
-    --secondary-foreground: 210 20% 98%;
-    --muted: 215 28% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 45 100% 51%;
-    --accent-foreground: 224 71.4% 4.1%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 215 28% 17%;
-    --input: 215 28% 17%;
-    --ring: 221 83% 53%;
+    --background: #fafafa;
+    --foreground: #09090b;
+    --border: #e4e4e7;
+    --radius: 0.75rem;
   }
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
+* {
+  box-sizing: border-box;
+}
 
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-bold tracking-tight;
-  }
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 
-  h1 {
-    @apply text-4xl lg:text-5xl;
-  }
+/* Premium Minimal Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
 
-  h2 {
-    @apply text-3xl lg:text-4xl;
-  }
+/* SaaS Component Classes */
+.saas-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
 
-  h3 {
-    @apply text-2xl lg:text-3xl;
-  }
+.saas-input {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid #d4d4d8;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #09090b;
+  transition: all 0.2s ease;
+}
+.saas-input:focus {
+  outline: none;
+  border-color: #09090b;
+  box-shadow: 0 0 0 1px #09090b;
+}
 
-  h4 {
-    @apply text-xl lg:text-2xl;
-  }
-
-  .glowing-button {
-    @apply bg-accent text-accent-foreground shadow-[0_0_15px_theme(colors.accent/0.5),0_0_5px_theme(colors.accent/0.3)];
-  }
-
-  .glowing-button:hover {
-     @apply shadow-[0_0_25px_theme(colors.accent/0.7),0_0_10px_theme(colors.accent/0.5)];
-  }
-
-  @keyframes count-up {
-    from {
-      opacity: 0;
-      transform: translateY(15px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  .count-up {
-    animation: count-up 0.5s ease-out forwards;
-  }
+.saas-button {
+  background-color: #09090b;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.6rem 1.2rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+}
+.saas-button:hover {
+  background-color: #27272a;
+}
+.saas-button-outline {
+  background-color: #ffffff;
+  color: #09090b;
+  border: 1px solid #e4e4e7;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+.saas-button-outline:hover {
+  background-color: #f4f4f5;
 }
