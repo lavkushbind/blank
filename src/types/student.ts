@@ -1,11 +1,13 @@
-﻿export type UserRole = "TEACHER" | "STUDENT" | "PARENT" | "ADMIN";
-
 export interface UserProfile {
   uid: string;
+  name: string;
   email: string;
-  displayName: string;
-  phoneNumber?: string;
-  role: UserRole;
+
+  phone?: string;
   photoURL?: string;
-  createdAt: number;
+
+  role?: "STUDENT" | "PARENT" | "TEACHER" | "ADMIN";
+
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }

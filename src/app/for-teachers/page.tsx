@@ -1,8 +1,9 @@
-﻿"use client";
+"use client";
 
 import React from "react";
 import Link from "next/link";
 import { DollarSign, Users, Award, ShieldCheck, ArrowRight } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
 
 export default function ForTeachersLandingPage() {
   return (
@@ -11,7 +12,7 @@ export default function ForTeachersLandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-sm">
-              BL
+              <BrandLogo className="h-full w-full rounded-[inherit] object-cover" />
             </div>
             <span className="font-black text-base tracking-tight text-slate-950">BlankLearn Teachers</span>
           </Link>

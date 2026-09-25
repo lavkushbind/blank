@@ -3,12 +3,17 @@ import { WebhookReceiver } from "livekit-server-sdk";
 
 export async function POST(req: NextRequest) {
   try {
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    if (!apiKey || !apiSecret) {
+      return NextResponse.json({ success: false, message: "LiveKit webhook is not configured." }, { status: 503 });
+    }
     const rawBody = await req.text();
     const authHeader = req.headers.get("Authorization");
 
     const receiver = new WebhookReceiver(
-      process.env.LIVEKIT_API_KEY || "temp_key",
-      process.env.LIVEKIT_API_SECRET || "temp_secret"
+      apiKey,
+      apiSecret
     );
 
     // LiveKit SDK me receive() async hota hai

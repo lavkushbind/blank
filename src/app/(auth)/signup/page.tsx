@@ -1,5 +1,5 @@
-import LuxuryAuthPage from "../login/page";
+import { redirect } from "next/navigation";
 
-export default function SignUpPage() {
-  return <LuxuryAuthPage />;
+export default function SignupPage() {
+  redirect("/teacher-auth?mode=signup");
 }

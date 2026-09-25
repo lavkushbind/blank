@@ -1,967 +1,848 @@
-"use client";
+ "use client";
 
-import React, { useState, useEffect, useRef, Suspense } from "react";
-import Image from "next/image";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ref, onValue, set } from "firebase/database";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { realtimeDb, db } from "@/lib/firebase/client";
 import {
-  Users,
-  Star,
-  CheckCircle2,
-  Clock,
-  AlertTriangle,
-  Play,
-  QrCode,
-  ShieldCheck,
   ArrowRight,
-  Phone,
-  Sparkles,
-  Zap,
   BookOpen,
-  Brain,
-  MessageCircle,
-  FileText,
-  Loader2,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  Clock3,
+  GraduationCap,
+  Menu,
+  Play,
   Quote,
+  ShieldCheck,
+  Sparkles,
+  Users,
+  Video,
   X,
-  PlayCircle
+  Zap,
 } from "lucide-react";
+import { onValue, ref } from "firebase/database";
+import { realtimeDb } from "@/lib/firebase/client";
+import { BrandLogo } from "@/components/BrandLogo";
 
-// =========================================================
-// 1. MASTER DEMO BOOKING MODAL (Realtime DB + Pixel + Pass)
-// =========================================================
-function DemoBookingModal({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [gradeNumber, setGradeNumber] = useState<number>(7);
-  const [board, setBoard] = useState("CBSE");
-  const [subject, setSubject] = useState("Mathematics");
-  const [demoType, setDemoType] = useState<"GROUP" | "INDIVIDUAL">("GROUP");
-  const [selectedSlot, setSelectedSlot] = useState("06:00 PM - 07:00 PM");
+/*
+ * BlankLearn public landing page
+ * Goals:
+ * - Premium, conversion-focused public homepage
+ * - Primary CTA: Book Demo
+ * - Teacher videos loaded from Realtime Database /VideoUploads
+ * - Teacher application CTA in footer
+ * - No fake metrics/reviews are hardcoded
+ * - Responsive + animated without external animation dependencies
+ */
 
-  const [loading, setLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+const DEMO_PROGRAMS = [
+  {
+    title: "Mathematics",
+    text: "Concept clarity, problem solving and live doubt support.",
+  },
+  {
+    title: "English",
+    text: "Grammar, communication and stronger fundamentals.",
+  },
+  {
+    title: "Math + Science + English",
+    text: "A broader live learning plan for students who need support across subjects.",
+  },
+];
 
-  const PLAN_PRICE = "2499";
+const STEPS = [
+  ["01", "Choose your class", "Select your class, board and what you want to learn."],
+  ["02", "Pick a convenient slot", "Choose a fixed one-hour slot that works for your child."],
+  ["03", "Get matched", "BlankLearn matches the student with an eligible teacher and available batch."],
+  ["04", "Join the live demo", "Meet the teacher and experience the classroom before deciding."],
+];
 
-  // Meta Pixel: InitiateCheckout on Modal Open
-  useEffect(() => {
-    if (open) {
-      if (typeof window !== "undefined") {
-        import("react-facebook-pixel")
-          .then((x) => x.default)
-          .then((ReactPixel) => {
-            try {
-              ReactPixel.track("InitiateCheckout", {
-                content_name: "Demo Modal Opened",
-                value: 0,
-                currency: "INR",
-              });
-            } catch (e) {
-              console.warn("Pixel tracking error", e);
-            }
-          })
-          .catch(() => {});
-      }
-    } else {
-      setTimeout(() => {
-        setIsSuccess(false);
-        setErrorMsg("");
-      }, 300);
-    }
-  }, [open]);
+const FAQS = [
+  ["How does the demo work?", "Choose your class, board, program and preferred one-hour slot. We then match you with an eligible teacher or an available existing batch."],
+  ["How many students are in a group?", "A group batch is designed for a maximum of 5 students. Individual demos can be offered separately."],
+  ["Which classes are supported?", "BlankLearn is currently designed for Classes 1–10."],
+  ["Which subjects can I choose?", "The initial demo programs are Mathematics, English, and Math + Science + English."],
+  ["Is the demo always paid?", "The demo price can change based on the active offer. BlankLearn can run a free demo campaign or a paid demo campaign."],
+];
 
-  const handleFreeBooking = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      setErrorMsg("Please enter the student's name.");
-      return;
-    }
-    const sanitizedPhone = phone.replace(/\D/g, "");
-    if (sanitizedPhone.length !== 10) {
-      setErrorMsg("Please enter a valid 10-digit WhatsApp number.");
-      return;
-    }
+function Reveal({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <div className={`reveal ${className}`}>{children}</div>;
+}
 
-    setLoading(true);
-    setErrorMsg("");
-
-    try {
-      const bookingPayload = {
-        studentName: name.trim(),
-        mobileNumber: sanitizedPhone,
-        studentClass: `Class ${gradeNumber}`,
-        board,
-        subject,
-        demoType: demoType === "GROUP" ? "Group of 5" : "1-on-1 Solo",
-        interestedPlan: `Group of 5 (₹${PLAN_PRICE}/mo)`,
-        demoTime: selectedSlot,
-        status: "booked_free",
-        bookingDate: new Date().toLocaleString(),
-        isAppRegistered: false,
-      };
-
-      // 1. Write to Firebase Realtime Database
-      const rtdbRef = ref(realtimeDb, `DemoBookings/${sanitizedPhone}`);
-      await set(rtdbRef, bookingPayload);
-
-      // 2. Also Write to Firestore for Web Portal Sync
-      try {
-        await addDoc(collection(db, "demo_bookings"), {
-          ...bookingPayload,
-          createdAt: serverTimestamp(),
-        });
-      } catch (fErr) {
-        console.warn("Firestore sync warning", fErr);
-      }
-
-      // 3. Meta Pixel: Lead Event
-      if (typeof window !== "undefined") {
-        import("react-facebook-pixel")
-          .then((x) => x.default)
-          .then((ReactPixel) => {
-            try {
-              ReactPixel.track("Lead", {
-                value: 0,
-                currency: "INR",
-                content_name: `${board} Class ${gradeNumber} ${subject} Lead`,
-              });
-            } catch (e) {
-              console.warn("Pixel Lead error", e);
-            }
-          })
-          .catch(() => {});
-      }
-
-      setLoading(false);
-      setIsSuccess(true);
-    } catch (error) {
-      console.error("Booking submission error:", error);
-      setLoading(false);
-      setErrorMsg("Network error. Please try again.");
-    }
-  };
-
+function DemoModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
-        
-        {!isSuccess ? (
-          <>
-            {/* Header */}
-            <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 p-6 text-white text-center relative shrink-0">
-              <button
-                onClick={() => onOpenChange(false)}
-                className="absolute top-4 right-4 text-white/80 hover:text-white p-1 rounded-full"
-              >
-                <X size={18} />
-              </button>
-              <span className="bg-white/20 text-[10px] font-mono uppercase tracking-wider px-3 py-1 rounded-full font-bold">
-                100% Free Trial • Zero Card Required
-              </span>
-              <h3 className="text-2xl font-black mt-2">Book Your 1:5 Trial Pod</h3>
-              <p className="text-xs text-blue-100 mt-1">Live interactive class with certified mentor</p>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-md">
+      <div className="w-full max-w-xl overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-[0_30px_100px_rgba(0,0,0,.35)]">
+        <div className="relative overflow-hidden bg-[#101827] px-6 py-7 text-white">
+          <div className="absolute -right-20 -top-24 h-56 w-56 rounded-full bg-blue-500/30 blur-3xl" />
+          <button onClick={onClose} className="absolute right-4 top-4 rounded-full p-2 text-white/60 hover:bg-white/10 hover:text-white">
+            <X size={18} />
+          </button>
+          <div className="relative">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold">
+              <Sparkles size={13} /> Live demo
             </div>
-
-            {/* Scrollable Form Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-5 text-xs">
-              {errorMsg && (
-                <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl font-bold flex items-center gap-2">
-                  <AlertTriangle size={14} className="shrink-0" />
-                  <span>{errorMsg}</span>
-                </div>
-              )}
-
-              {/* Plan Display Card */}
-              <div className="bg-indigo-50/60 border border-indigo-200 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Interested Course</span>
-                  <p className="font-black text-slate-900 text-base">Small Group Pod (Max 5)</p>
-                  <p className="text-slate-500 text-[11px]">1 Hr Daily • Mon to Fri • Homework in Class</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-lg font-black text-indigo-700 font-mono">₹{PLAN_PRICE}</span>
-                  <span className="text-[10px] text-slate-400 block">/month</span>
-                </div>
-              </div>
-
-              {/* 1. Class Selection (1 to 10) */}
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5">Select Class (Grades 1 to 10)</label>
-                <div className="grid grid-cols-5 sm:grid-cols-10 gap-1">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => setGradeNumber(num)}
-                      className={`py-2 text-xs font-black rounded-lg border transition ${
-                        gradeNumber === num
-                          ? "bg-blue-600 border-blue-600 text-white shadow-sm"
-                          : "bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300"
-                      }`}
-                    >
-                      {num}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 2. Board & Subject Grid */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1.5">Curriculum Board</label>
-                  <select
-                    value={board}
-                    onChange={(e) => setBoard(e.target.value)}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-200 bg-slate-50"
-                  >
-                    <option>CBSE</option>
-                    <option>ICSE</option>
-                    <option>UP Board</option>
-                    <option>State Board</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1.5">Subject</label>
-                  <select
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-200 bg-slate-50"
-                  >
-                    <option>Mathematics</option>
-                    <option>Science</option>
-                    <option>English</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* 3. Demo Format */}
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5">Demo Format</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDemoType("GROUP")}
-                    className={`p-2.5 rounded-xl border text-left font-bold transition ${
-                      demoType === "GROUP"
-                        ? "bg-blue-50 border-blue-600 text-blue-950"
-                        : "bg-slate-50 border-slate-200 text-slate-600"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <Users size={13} className="text-blue-600" />
-                      <span>Group of 5</span>
-                    </div>
-                    <span className="text-[10px] text-slate-400 font-normal block mt-0.5">₹0 Free Offer</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setDemoType("INDIVIDUAL")}
-                    className={`p-2.5 rounded-xl border text-left font-bold transition ${
-                      demoType === "INDIVIDUAL"
-                        ? "bg-blue-50 border-blue-600 text-blue-950"
-                        : "bg-slate-50 border-slate-200 text-slate-600"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>Solo 1-on-1</span>
-                    </div>
-                    <span className="text-[10px] text-slate-400 font-normal block mt-0.5">Dedicated Demo</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* 4. Time Slots */}
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1">
-                  <Clock size={13} className="text-blue-600" /> SELECT DEMO TIME (TOMORROW)
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    "04:00 PM - 05:00 PM",
-                    "06:00 PM - 07:00 PM",
-                    "07:00 PM - 08:00 PM",
-                    "08:00 PM - 09:00 PM",
-                  ].map((slot) => (
-                    <div
-                      key={slot}
-                      onClick={() => setSelectedSlot(slot)}
-                      className={`cursor-pointer border rounded-xl p-2 text-center text-[11px] font-bold transition-all ${
-                        selectedSlot === slot
-                          ? "border-blue-600 bg-blue-50 text-blue-800"
-                          : "border-slate-200 hover:border-slate-300 text-slate-700 bg-slate-50"
-                      }`}
-                    >
-                      {slot}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* 5. Inputs */}
-              <div className="space-y-3 pt-1">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Student's Full Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Aarav Sharma"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full text-xs font-medium p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Parent WhatsApp Number (10-Digit)</label>
-                  <div className="flex">
-                    <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-slate-200 bg-slate-100 text-slate-600 text-xs font-bold">
-                      +91
-                    </span>
-                    <input
-                      type="tel"
-                      required
-                      placeholder="98210 XXXXX"
-                      maxLength={10}
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="w-full text-xs font-medium p-2.5 rounded-r-xl border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer Action */}
-            <div className="p-4 bg-white border-t border-slate-100 shrink-0">
-              <button
-                onClick={handleFreeBooking}
-                disabled={loading}
-                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-blue-500/20 transition flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="animate-spin w-4 h-4" /> Reserving Seat...
-                  </span>
-                ) : (
-                  "Confirm Free Demo Seat (₹0) →"
-                )}
-              </button>
-            </div>
-          </>
-        ) : (
-          /* ===================================================== */
-          /* SUCCESS DIGITAL ADMIT PASS                             */
-          /* ===================================================== */
-          <div className="flex flex-col items-center justify-center text-center p-6 space-y-5 bg-slate-50 overflow-y-auto">
-            <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shadow-inner mt-2">
-              <CheckCircle2 size={32} />
-            </div>
-
-            <div>
-              <h3 className="text-2xl font-black text-slate-900">Booking Confirmed!</h3>
-              <p className="text-slate-500 text-xs mt-1">Your Demo Admit Pass is ready.</p>
-            </div>
-
-            {/* Digital Pass Ticket */}
-            <div className="bg-white border border-slate-200 rounded-2xl w-full text-left relative overflow-hidden shadow-xl">
-              <div className="bg-slate-900 text-white p-3 flex justify-between items-center">
-                <span className="text-xs font-black tracking-wider font-mono">BLANKLEARN ADMIT PASS</span>
-                <span className="bg-yellow-400 text-black text-[10px] font-black px-2 py-0.5 rounded-full">
-                  TRIAL POD
-                </span>
-              </div>
-
-              <div className="p-5 relative">
-                <div className="absolute top-4 right-4 opacity-10">
-                  <QrCode className="w-16 h-16" />
-                </div>
-                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Student Name</p>
-                <p className="font-black text-lg text-slate-900 mb-3">{name}</p>
-
-                <div className="grid grid-cols-2 gap-2 border-t border-dashed border-slate-200 pt-3 text-xs">
-                  <div>
-                    <p className="text-[10px] text-slate-400 uppercase font-bold">Class & Board</p>
-                    <p className="font-bold text-slate-800">{board} • Class {gradeNumber}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold">Time Slot</p>
-                    <p className="font-bold text-blue-600">{selectedSlot}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-blue-50 p-2.5 text-center border-t border-slate-100">
-                <p className="text-xs text-blue-700 font-bold">Plan: Small Group (₹{PLAN_PRICE}/mo)</p>
-              </div>
-            </div>
-
-            <div className="w-full space-y-2 pb-2">
-              <button
-                className="w-full h-12 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg"
-                onClick={() => window.open("https://play.google.com/store/apps/details?id=com.blank_learn.dark", "_blank")}
-              >
-                <PlayCircle size={18} /> Download App to Join
-              </button>
-
-              <p className="text-[11px] text-slate-500 font-semibold bg-white px-3 py-1.5 rounded-full border border-slate-200 inline-block">
-                🔔 Link active 10 mins before class time on WhatsApp & Web
-              </p>
-            </div>
+            <h3 className="text-2xl font-black tracking-tight">Let&apos;s find the right class.</h3>
+            <p className="mt-1 text-sm text-white/60">Choose the demo you want to try.</p>
           </div>
-        )}
+        </div>
 
+        <div className="space-y-4 p-6">
+          <Link
+            href="/demo-booking"
+            onClick={onClose}
+            className="group flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50"
+          >
+            <div>
+              <p className="font-bold text-slate-950">Book a demo</p>
+              <p className="mt-1 text-xs text-slate-500">Class, board, program and one-hour slot</p>
+            </div>
+            <ArrowRight className="text-blue-600 transition group-hover:translate-x-1" size={18} />
+          </Link>
+
+          <button
+            onClick={onClose}
+            className="w-full rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            Continue exploring
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-// =========================================================
-// 2. MODERN NAVBAR
-// =========================================================
-const NavigationBar = ({ onBookDemoClick }: { onBookDemoClick: () => void }) => (
-  <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-200">
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 h-18 flex items-center justify-between">
-      <Link href="/" className="flex items-center gap-2.5">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center font-black text-base shadow-sm">
-          BL
-        </div>
-        <div>
-          <span className="text-xl font-black text-slate-900 tracking-tight">Blanklearn</span>
-          <span className="block text-[9px] font-bold text-blue-600 uppercase tracking-wider -mt-1">
-            Small Group (1:5)
-          </span>
-        </div>
-      </Link>
+function Navbar({ onDemo }: { onDemo: () => void }) {
+  const [menu, setMenu] = useState(false);
 
-      <div className="flex items-center gap-3">
-        <Link
-          href="/login"
-          className="text-xs font-bold text-slate-700 hover:text-slate-950 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 transition"
-        >
-          Portal Login
+  return (
+    <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <Link href="/" className="group flex items-center gap-2.5">
+          <div className="grid h-9 w-9 place-items-center rounded-xl bg-slate-950 text-xs font-black text-white shadow-lg shadow-slate-950/10 transition group-hover:-rotate-3">
+            <BrandLogo className="h-full w-full rounded-[inherit] object-cover" />
+          </div>
+          <div>
+            <div className="text-[17px] font-black tracking-tight text-slate-950">BlankLearn</div>
+            <div className="text-[8px] font-bold uppercase tracking-[.18em] text-blue-600">Live learning</div>
+          </div>
         </Link>
-        <button
-          className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md shadow-blue-500/20 transition"
-          onClick={onBookDemoClick}
-        >
-          Book Free Demo
+
+        <nav className="hidden items-center gap-7 text-[13px] font-semibold text-slate-600 md:flex">
+          <a href="#how-it-works" className="hover:text-slate-950">How it works</a>
+          <a href="#programs" className="hover:text-slate-950">Programs</a>
+          <a href="#pricing" className="hover:text-slate-950">Pricing</a>
+          <a href="#teachers" className="hover:text-slate-950">Teachers</a>
+          <a href="#faq" className="hover:text-slate-950">FAQ</a>
+        </nav>
+
+        <div className="hidden items-center gap-2 md:flex">
+          <Link href="/student-auth" className="rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100">
+            Login
+          </Link>
+          <button onClick={onDemo} className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-slate-950/15 transition hover:-translate-y-0.5 hover:bg-blue-700">
+            Book Demo <ArrowRight className="ml-1 inline" size={13} />
+          </button>
+        </div>
+
+        <button onClick={() => setMenu(!menu)} className="rounded-xl p-2 text-slate-800 md:hidden">
+          {menu ? <X size={21} /> : <Menu size={21} />}
         </button>
       </div>
-    </div>
-  </header>
-);
 
-// =========================================================
-// 3. HERO SECTION
-// =========================================================
-const HeroHeader = ({ onBookDemoClick }: { onBookDemoClick: () => void }) => (
-  <section className="py-16 md:py-24 bg-gradient-to-b from-blue-50/70 via-white to-white relative overflow-hidden">
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div className="grid lg:grid-cols-2 gap-12 items-center">
-        
-        <div className="text-center lg:text-left z-10 space-y-6">
-          <div className="inline-flex items-center gap-1.5 bg-yellow-50 text-yellow-800 px-3.5 py-1.5 rounded-full text-xs font-black border border-yellow-200 shadow-sm">
-            <Star className="w-3.5 h-3.5 fill-current text-yellow-500" /> 4.9/5 Rated by 500+ Parents
-          </div>
-
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-slate-950 leading-[1.15] tracking-tight">
-            Stop the Homework <span className="text-blue-600">Struggle.</span>
-          </h1>
-
-          <p className="text-base sm:text-lg text-slate-600 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-            Live interactive classes kids actually love. Personal attention, daily homework support, and concept clarity—at just <span className="font-bold text-slate-900">₹2499/month</span>.
-          </p>
-
-          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-            <button
-              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white h-14 px-8 text-base font-black rounded-2xl shadow-xl shadow-blue-500/25 transition flex items-center justify-center gap-2"
-              onClick={onBookDemoClick}
-            >
-              Book Free Live Demo <ArrowRight size={16} />
-            </button>
-            <p className="text-xs text-slate-500 font-bold flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" /> No credit card needed
-            </p>
+      {menu && (
+        <div className="border-t border-slate-100 bg-white px-4 py-4 md:hidden">
+          <div className="space-y-1">
+            <a onClick={() => setMenu(false)} href="#how-it-works" className="block rounded-xl px-3 py-3 text-sm font-semibold">How it works</a>
+            <a onClick={() => setMenu(false)} href="#programs" className="block rounded-xl px-3 py-3 text-sm font-semibold">Programs</a>
+            <a onClick={() => setMenu(false)} href="#pricing" className="block rounded-xl px-3 py-3 text-sm font-semibold">Pricing</a>
+            <a onClick={() => setMenu(false)} href="#teachers" className="block rounded-xl px-3 py-3 text-sm font-semibold">Teachers</a>
+            <a onClick={() => setMenu(false)} href="#faq" className="block rounded-xl px-3 py-3 text-sm font-semibold">FAQ</a>
+            <button onClick={() => { setMenu(false); onDemo(); }} className="mt-2 w-full rounded-xl bg-slate-950 py-3 text-sm font-bold text-white">Book Demo</button>
           </div>
         </div>
+      )}
+    </header>
+  );
+}
 
-        <div className="relative">
-          <div className="absolute -inset-4 bg-gradient-to-r from-blue-100 to-indigo-100 rounded-full blur-3xl opacity-60 -z-10" />
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <span className="text-xs font-black text-slate-900">Live 1:5 Interactive Pod</span>
-              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded font-mono">
-                MAX 5 STUDENTS
-              </span>
-            </div>
-
-            <div className="space-y-2.5 text-xs text-slate-700">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                <span><strong>1 Hour Daily Live Class:</strong> Monday to Friday</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                <span><strong>Homework Done in Class:</strong> Evenings are 100% peaceful</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                <span><strong>Camera ON Always:</strong> Teacher calls your child by name</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                <span><strong>Full Recording Access:</strong> Watch anytime on Web or App</span>
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <button
-                onClick={onBookDemoClick}
-                className="w-full py-3 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl shadow-md transition"
-              >
-                Claim Free Demo Seat Today →
-              </button>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </section>
-);
-
-// =========================================================
-// 4. REALTIME STUDENT HIGHLIGHTS (Realtime DB: VideoUploads)
-// =========================================================
-const StudentHighlights = () => {
-  const [videos, setVideos] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [playingId, setPlayingId] = useState<string | null>(null);
-  const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
-
-  useEffect(() => {
-    try {
-      const videosRef = ref(realtimeDb, "VideoUploads");
-      onValue(videosRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          setVideos(
-            Object.entries(data).map(([key, value]: [string, any]) => ({
-              id: key,
-              url: value.videoUrl || value.postUrl || value.url,
-              thumbnail: value.thumbnail || value.image || "",
-            }))
-          );
-        }
-        setLoading(false);
-      });
-    } catch (e) {
-      setLoading(false);
-    }
-  }, []);
-
-  const handlePlay = (id: string) => {
-    Object.keys(videoRefs.current).forEach((key) => {
-      if (key !== id && videoRefs.current[key]) videoRefs.current[key]?.pause();
-    });
-    if (videoRefs.current[id]) videoRefs.current[id]?.play();
-    setPlayingId(id);
-  };
-
+function Hero({ onDemo }: { onDemo: () => void }) {
   return (
-    <section className="py-20 bg-slate-950 text-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-14 space-y-2">
-          <span className="inline-block py-1 px-3 rounded-full bg-blue-900/50 border border-blue-700 text-blue-300 text-xs font-bold tracking-wider uppercase">
-            Live Classroom Footage 🎥
-          </span>
-          <h2 className="text-3xl md:text-4xl font-black tracking-tight">
-            See the Magic <span className="text-blue-400">Live.</span>
-          </h2>
-          <p className="text-sm text-slate-400 max-w-xl mx-auto">
-            Watch how our mentors make tough concepts easy in real-time.
-          </p>
-        </div>
+    <section className="relative overflow-hidden bg-[#f8fafc]">
+      <div className="hero-grid absolute inset-0 opacity-60" />
+      <div className="absolute -left-32 top-20 h-80 w-80 rounded-full bg-blue-400/15 blur-3xl" />
+      <div className="absolute right-0 top-0 h-96 w-96 rounded-full bg-violet-400/15 blur-3xl" />
 
-        {loading ? (
-          <div className="flex justify-center h-32 items-center">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-4 pb-20 pt-16 sm:px-6 md:pb-28 md:pt-24 lg:grid-cols-[1.03fr_.97fr] lg:px-8">
+        <Reveal>
+          <div className="max-w-2xl">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3.5 py-2 text-[11px] font-bold text-slate-700 shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Live classes for Classes 1–10
+            </div>
+
+            <h1 className="text-5xl font-black leading-[.98] tracking-[-.055em] text-slate-950 sm:text-6xl lg:text-[76px]">
+              Learning that feels
+              <span className="relative mx-2 inline-block text-blue-600">
+                personal.
+                <span className="hero-underline absolute -bottom-1 left-0 h-2 w-full rounded-full bg-blue-200/80" />
+              </span>
+            </h1>
+
+            <p className="mt-7 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">
+              Small live classes, carefully matched teachers and a learning experience built around your child&apos;s class, board and schedule.
+            </p>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <button onClick={onDemo} className="group rounded-2xl bg-blue-600 px-6 py-4 text-sm font-black text-white shadow-[0_16px_35px_rgba(37,99,235,.24)] transition hover:-translate-y-1 hover:bg-blue-700">
+                Book a live demo
+                <ArrowRight className="ml-2 inline transition group-hover:translate-x-1" size={16} />
+              </button>
+              <a href="#teachers" className="rounded-2xl border border-slate-200 bg-white px-6 py-4 text-center text-sm font-bold text-slate-800 shadow-sm transition hover:-translate-y-1 hover:border-slate-300">
+                Meet our teachers
+              </a>
+            </div>
+
+            <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-slate-500">
+              <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-emerald-600" /> Up to 5 students</span>
+              <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-emerald-600" /> 1-hour slots</span>
+              <span className="inline-flex items-center gap-1.5"><Check size={14} className="text-emerald-600" /> Live teacher interaction</span>
+            </div>
           </div>
-        ) : videos.length > 0 ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {videos.map((video) => (
-              <div
-                key={video.id}
-                className={`relative group rounded-3xl overflow-hidden bg-black border border-slate-800 transition-all duration-300 ${
-                  playingId === video.id ? "ring-2 ring-blue-500 shadow-2xl scale-105 z-10" : "hover:scale-[1.02]"
-                }`}
-                style={{ aspectRatio: "16/9" }}
-              >
-                <video
-                  ref={(el) => { videoRefs.current[video.id] = el; }}
-                  className="w-full h-full object-cover"
-                  src={video.url}
-                  controls={playingId === video.id}
-                  playsInline
-                  poster={video.thumbnail}
-                  onPlay={() => setPlayingId(video.id)}
-                  onEnded={() => setPlayingId(null)}
-                />
-                {playingId !== video.id && (
-                  <div
-                    className="absolute inset-0 bg-black/40 group-hover:bg-black/30 transition-colors flex items-center justify-center cursor-pointer"
-                    onClick={() => handlePlay(video.id)}
-                  >
-                    <div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center border border-white/30 shadow-xl group-hover:scale-110 transition-transform">
-                      <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-inner">
-                        <Play className="w-4 h-4 fill-current ml-0.5" />
+        </Reveal>
+
+        <Reveal className="lg:pl-8">
+          <div className="relative mx-auto max-w-[560px]">
+            <div className="absolute -inset-5 rounded-[40px] bg-gradient-to-br from-blue-500/20 via-violet-500/10 to-transparent blur-2xl" />
+
+            <div className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-white p-3 shadow-[0_30px_90px_rgba(15,23,42,.16)]">
+              <div className="rounded-[24px] bg-slate-950 p-3">
+                <div className="flex items-center justify-between border-b border-white/10 px-3 pb-3">
+                  <div>
+                    <p className="text-[10px] font-semibold text-white/45">LIVE CLASSROOM</p>
+                    <p className="text-sm font-bold text-white">Mathematics · Class 7</p>
+                  </div>
+                  <div className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-bold text-emerald-300">LIVE</div>
+                </div>
+
+                <div className="mt-3 aspect-[16/10] overflow-hidden rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 p-5">
+                  <div className="flex h-full flex-col justify-between">
+                    <div>
+                      <div className="mb-4 text-[10px] font-semibold uppercase tracking-[.2em] text-white/35">Teacher whiteboard</div>
+                      <div className="rounded-2xl border border-white/10 bg-white/[.06] p-5">
+                        <p className="text-xs text-blue-300">Today&apos;s concept</p>
+                        <p className="mt-2 text-2xl font-black tracking-tight text-white">Linear Equations</p>
+                        <p className="mt-3 font-mono text-sm text-white/65">2x + 5 = 15</p>
                       </div>
                     </div>
+                    <div className="flex gap-2">
+                      {["Teacher", "A", "R", "S", "P"].map((x, i) => (
+                        <div key={x} className={`flex h-11 flex-1 items-center justify-center rounded-xl border text-[10px] font-bold ${i === 0 ? "border-blue-400/30 bg-blue-500/15 text-blue-200" : "border-white/10 bg-white/5 text-white/40"}`}>
+                          {x}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                )}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between px-2 pb-1 text-[10px] text-white/45">
+                  <span>Teacher + small group</span>
+                  <span className="inline-flex items-center gap-1"><ShieldCheck size={12} /> Private classroom</span>
+                </div>
               </div>
-            ))}
+            </div>
+
+            <div className="float-card absolute -bottom-5 -left-4 hidden rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-xl sm:block">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Class format</p>
+              <p className="mt-1 text-sm font-black text-slate-950">Maximum 5 students</p>
+            </div>
+
+            <div className="float-card-delayed absolute -right-4 top-10 hidden rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-xl sm:block">
+              <div className="flex items-center gap-2">
+                <div className="grid h-8 w-8 place-items-center rounded-xl bg-blue-50 text-blue-600"><Clock3 size={15} /></div>
+                <div>
+                  <p className="text-[10px] text-slate-400">Choose</p>
+                  <p className="text-xs font-black text-slate-900">Your 1-hour slot</p>
+                </div>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl text-center text-slate-400 text-xs max-w-md mx-auto">
-            Classroom clips are updating. Check back shortly.
-          </div>
-        )}
+        </Reveal>
       </div>
     </section>
   );
-};
+}
 
-// =========================================================
-// 5. PAIN & SOLUTION SECTION
-// =========================================================
-const PainAndSolution = ({ onBookDemoClick }: { onBookDemoClick: () => void }) => (
-  <section className="py-20 bg-slate-50 relative overflow-hidden">
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 relative z-10 space-y-12">
-      <div className="text-center space-y-2">
-        <div className="inline-flex items-center gap-1.5 bg-blue-100 text-blue-800 px-3.5 py-1 rounded-full text-xs font-bold">
-          <Sparkles className="w-3.5 h-3.5" /> Trusted by 500+ Working Parents
-        </div>
-        <h2 className="text-3xl sm:text-4xl font-black text-slate-950">
-          Why Parents Choose Us? 💝
-        </h2>
-        <p className="text-xs sm:text-sm text-slate-500">Real problems. Real solutions. Real peace of mind.</p>
-      </div>
-
-      <div className="grid md:grid-cols-3 gap-6">
-        {/* Pain 1 */}
-        <div className="bg-white rounded-3xl border border-red-100 p-6 shadow-sm space-y-3">
-          <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-red-600 font-bold">
-            <Clock size={24} />
-          </div>
-          <h3 className="text-lg font-black text-slate-900">The Homework Battle 😫</h3>
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Coming home exhausted to pending homework fights. No energy left for quality family time.
-          </p>
-          <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded inline-block">
-            ⚠️ 78% parents feel this daily
-          </span>
-        </div>
-
-        {/* Pain 2 */}
-        <div className="bg-white rounded-3xl border border-amber-100 p-6 shadow-sm space-y-3">
-          <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600 font-bold">
-            <AlertTriangle size={24} />
-          </div>
-          <h3 className="text-lg font-black text-slate-900">The 50-Kid Crowd 😰</h3>
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Local coaching packs 50+ kids. Your child stays on mute with zero personal attention.
-          </p>
-          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded inline-block">
-            ⚠️ 1 Teacher : 50+ Kids
-          </span>
-        </div>
-
-        {/* The Solution */}
-        <div
-          onClick={onBookDemoClick}
-          className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-3xl p-6 shadow-xl space-y-3 cursor-pointer hover:scale-[1.02] transition"
-        >
-          <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center font-bold">
-            <CheckCircle2 size={24} />
-          </div>
-          <h3 className="text-lg font-black">The Solution: 1:5 Pods ✨</h3>
-          <p className="text-xs text-blue-100 leading-relaxed">
-            Small Batches (Max 5). Homework finished in class. Child excels, parents relax.
-          </p>
-          <div className="pt-2 flex items-center justify-between font-bold text-xs">
-            <span>100% Personal Care</span>
-            <span className="flex items-center gap-1">Try Demo <ArrowRight size={13} /></span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-);
-
-// =========================================================
-// 6. DYNAMIC REVIEWS (Realtime DB: reviews)
-// =========================================================
-const SocialProof = () => {
-  const [reviews, setReviews] = useState<any[]>([]);
+function VideoShowcase() {
+  const [videos, setVideos] = useState<{ id: string; url: string; thumbnail?: string; name?: string }[]>([]);
+  const [active, setActive] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const revRef = ref(realtimeDb, "reviews");
-      onValue(revRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          setReviews(
-            Object.entries(data).map(([key, value]: [string, any]) => ({
-              id: key,
-              name: value.name || "Parent",
-              rating: value.rating || 5,
-              reviewText: value.reviewText || value.text || "",
-            }))
-          );
-        }
-      });
-    } catch (e) {}
+    const videosRef = ref(realtimeDb, "VideoUploads");
+    return onValue(videosRef, (snapshot) => {
+      const value = snapshot.val() || {};
+      const list = Object.entries(value)
+        .map(([id, raw]: [string, any]) => ({
+          id,
+          url: raw?.videoUrl || raw?.postUrl || raw?.url || "",
+          thumbnail: raw?.thumbnail || raw?.image || "",
+          name: raw?.name || "Teacher introduction",
+        }))
+        .filter((v) => v.url)
+        .slice(0, 6);
+
+      setVideos(list);
+    });
   }, []);
 
   return (
-    <section className="py-20 bg-white">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-12 space-y-2">
-          <h2 className="text-3xl font-black text-slate-950">What Parents Are Saying</h2>
-          <p className="text-xs text-slate-500">Real verified feedback from working parents</p>
-        </div>
-
-        {reviews.length > 0 ? (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {reviews.map((r) => (
-              <div key={r.id} className="bg-slate-50 p-6 rounded-3xl border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-black text-slate-900 text-xs">{r.name}</h4>
-                  <div className="flex text-yellow-400 text-xs">{"★".repeat(r.rating || 5)}</div>
-                </div>
-                <p className="text-xs text-slate-600 italic leading-relaxed">"{r.reviewText}"</p>
+    <section id="teachers" className="bg-slate-950 py-24 text-white">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <Reveal>
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.18em] text-blue-300">
+                <Video size={13} /> Meet the teachers
               </div>
+              <h2 className="max-w-2xl text-4xl font-black tracking-tight sm:text-5xl">See the people behind the class.</h2>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-white/55">
+                Short teacher videos let parents get a feel for the teaching style before booking a demo.
+              </p>
+            </div>
+            <Link href="/teachers" className="text-sm font-bold text-white/80 hover:text-white">Explore all teachers <ArrowRight className="ml-1 inline" size={15} /></Link>
+          </div>
+        </Reveal>
+
+        {videos.length > 0 ? (
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {videos.map((video, i) => (
+              <Reveal key={video.id}>
+                <article className={`group overflow-hidden rounded-[24px] border border-white/10 bg-white/[.045] transition duration-500 hover:-translate-y-1 hover:border-white/20 ${active === video.id ? "ring-1 ring-blue-400/50" : ""}`}>
+                  <div className="relative aspect-video overflow-hidden bg-slate-900">
+                    <video
+                      src={video.url}
+                      poster={video.thumbnail}
+                      controls={active === video.id}
+                      playsInline
+                      preload="metadata"
+                      onPlay={() => setActive(video.id)}
+                      onEnded={() => setActive(null)}
+                      className="h-full w-full object-cover"
+                    />
+                    {active !== video.id && (
+                      <button
+                        aria-label="Play teacher video"
+                        onClick={() => setActive(video.id)}
+                        className="absolute inset-0 grid place-items-center bg-gradient-to-t from-black/45 to-transparent"
+                      >
+                        <span className="grid h-14 w-14 place-items-center rounded-full bg-white text-slate-950 shadow-2xl transition group-hover:scale-110">
+                          <Play size={20} fill="currentColor" className="ml-0.5" />
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <p className="text-sm font-bold text-white">{video.name}</p>
+                    <p className="mt-1 text-xs text-white/40">Teacher introduction · BlankLearn</p>
+                  </div>
+                </article>
+              </Reveal>
             ))}
           </div>
         ) : (
-          <div className="text-center text-xs text-slate-400">Loading parent feedback...</div>
+          <div className="mt-12 rounded-[28px] border border-dashed border-white/10 bg-white/[.03] p-10 text-center">
+            <p className="text-sm font-semibold text-white/60">Teacher videos will appear here.</p>
+            <p className="mt-1 text-xs text-white/35">Add approved videos to Realtime Database under VideoUploads.</p>
+          </div>
         )}
       </div>
     </section>
   );
-};
+}
 
-// =========================================================
-// 7. PRICING SECTION (₹2,499/mo)
-// =========================================================
-const PricingPlan = ({ onBookDemoClick }: { onBookDemoClick: () => void }) => (
-  <section className="py-20 bg-slate-50 border-t border-slate-200">
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 space-y-12">
-      <div className="text-center space-y-2">
-        <h2 className="text-3xl font-black text-slate-950">Simple, Affordable Pricing</h2>
-        <p className="text-xs text-slate-500">Quality education with strictly 5 students per batch.</p>
-      </div>
-
-      <div className="grid md:grid-cols-3 gap-6">
-        {/* Monthly Plan */}
-        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-5 flex flex-col justify-between">
-          <div className="space-y-3">
-            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-              Monthly Batch
-            </span>
-            <h3 className="text-2xl font-black text-slate-950">₹2,499 <span className="text-xs text-slate-400 font-normal">/mo</span></h3>
-            <ul className="space-y-2 text-xs text-slate-600 font-medium">
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-600" /> Live Classes (Mon-Fri)</li>
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-600" /> 1 Hour Daily Sessions</li>
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-600" /> Max 5 Students Batch</li>
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-600" /> Homework Done in Class</li>
-            </ul>
-          </div>
-          <button
-            onClick={onBookDemoClick}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md"
-          >
-            Book Free Demo
-          </button>
-        </div>
-
-        {/* Quarterly Saver */}
-        <div className="bg-white rounded-3xl p-6 border-2 border-blue-600 shadow-xl relative space-y-5 flex flex-col justify-between">
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] font-bold text-white bg-blue-600 px-2.5 py-0.5 rounded-full uppercase">
-                Best Value
-              </span>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                Save ₹800
-              </span>
-            </div>
-            <h3 className="text-2xl font-black text-slate-950">₹5,500 <span className="text-xs text-slate-400 font-normal">/ 3 mo</span></h3>
-            <ul className="space-y-2 text-xs text-slate-600 font-medium">
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-blue-600" /> Everything in Monthly</li>
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-blue-600" /> Syllabus Completion Guarantee</li>
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-blue-600" /> Monthly Progress Report</li>
-            </ul>
-          </div>
-          <button
-            onClick={onBookDemoClick}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-lg"
-          >
-            Book Free Demo
-          </button>
-        </div>
-
-        {/* Annual Plan */}
-        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-5 flex flex-col justify-between">
-          <div className="space-y-3">
-            <span className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded">
-              Annual Plan
-            </span>
-            <h3 className="text-2xl font-black text-slate-950">₹15,000 <span className="text-xs text-slate-400 font-normal">/ 10 mo</span></h3>
-            <ul className="space-y-2 text-xs text-slate-600 font-medium">
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-purple-600" /> Full Year Coverage</li>
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-purple-600" /> Save ₹3,000 Flat</li>
-              <li className="flex items-center gap-2"><CheckCircle2 size={14} className="text-purple-600" /> Free E-Books & Materials</li>
-            </ul>
-          </div>
-          <button
-            onClick={onBookDemoClick}
-            className="w-full py-3 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl shadow-md"
-          >
-            Book Free Demo
-          </button>
-        </div>
-      </div>
-    </div>
-  </section>
-);
-
-// =========================================================
-// 8. FAQ ACCORDION
-// =========================================================
-const FinalFAQ = () => {
-  const [openIdx, setOpenIdx] = useState<number | null>(0);
-  const faqs = [
-    { q: "Is it a Live or Recorded Class?", a: "100% LIVE & Interactive classes. Students speak face-to-face with the teacher. No boring pre-recorded videos." },
-    { q: "How many students are in one batch?", a: "Strictly maximum 5 students per batch. This ensures every child gets individual attention." },
-    { q: "What is the daily schedule?", a: "Monday to Friday, 1 hour daily. Evening slots available so it never clashes with school." },
-    { q: "What if my child misses a class?", a: "Full class recording is automatically saved in your child's portal." },
+function HowItWorks({ onDemo }: { onDemo: () => void }) {
+  const items = [
+    {
+      num: "01",
+      eyebrow: "Tell us what you need",
+      title: "Choose the right learning path.",
+      text: "Select class, board and the program that fits your child. No complicated setup.",
+      icon: <GraduationCap size={19} />,
+      accent: "from-blue-500 to-cyan-400",
+    },
+    {
+      num: "02",
+      eyebrow: "Pick your time",
+      title: "Choose a one-hour slot.",
+      text: "Select a fixed slot that works for your child. Matching is built around real teacher availability.",
+      icon: <Clock3 size={19} />,
+      accent: "from-violet-500 to-fuchsia-400",
+    },
+    {
+      num: "03",
+      eyebrow: "Smart matching",
+      title: "Meet the right teacher.",
+      text: "BlankLearn checks board, class, program, teaching mode and available capacity before matching.",
+      icon: <Users size={19} />,
+      accent: "from-emerald-500 to-teal-400",
+    },
+    {
+      num: "04",
+      eyebrow: "Experience it live",
+      title: "Join the demo class.",
+      text: "Meet the teacher, experience the classroom and understand the learning style before committing.",
+      icon: <Video size={19} />,
+      accent: "from-orange-500 to-amber-400",
+    },
   ];
 
   return (
-    <section className="py-20 bg-white">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 space-y-8">
-        <div className="text-center space-y-2">
-          <h2 className="text-3xl font-black text-slate-950">Frequently Asked Questions</h2>
-          <p className="text-xs text-slate-500">Everything you need to know about our program</p>
+    <section id="how-it-works" className="relative overflow-hidden bg-[#f8fafc] py-24 sm:py-28">
+      <div className="pointer-events-none absolute -left-40 top-20 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -right-40 bottom-0 h-96 w-96 rounded-full bg-violet-500/10 blur-3xl" />
+
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <Reveal>
+          <div className="flex flex-col justify-between gap-8 md:flex-row md:items-end">
+            <div className="max-w-3xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white px-3.5 py-2 text-[10px] font-black uppercase tracking-[.2em] text-blue-600 shadow-sm">
+                <Sparkles size={13} /> How it works
+              </div>
+              <h2 className="mt-5 text-4xl font-black leading-[1.02] tracking-[-.04em] text-slate-950 sm:text-6xl">
+                From first click
+                <span className="text-blue-600"> to first class.</span>
+              </h2>
+              <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-500 sm:text-base">
+                A simple journey for parents and students, with the complexity handled behind the scenes.
+              </p>
+            </div>
+
+            <div className="hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:block">
+              <p className="text-[10px] font-black uppercase tracking-[.18em] text-slate-400">Built around</p>
+              <p className="mt-1 text-sm font-black text-slate-900">Class · Board · Program · Slot</p>
+            </div>
+          </div>
+        </Reveal>
+
+        <div className="relative mt-14">
+          <div className="absolute left-[12.5%] right-[12.5%] top-[104px] hidden h-px bg-gradient-to-r from-blue-200 via-violet-200 to-orange-200 lg:block" />
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {items.map((item, index) => (
+              <Reveal key={item.num}>
+                <article className="group relative h-full overflow-hidden rounded-[28px] border border-slate-200/90 bg-white p-6 shadow-[0_14px_45px_rgba(15,23,42,.06)] transition duration-500 hover:-translate-y-2 hover:border-slate-300 hover:shadow-[0_25px_65px_rgba(15,23,42,.11)]">
+                  <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${item.accent} opacity-80`} />
+
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[11px] font-black tracking-widest text-blue-600">{item.num}</span>
+                    <span className="text-[10px] font-bold text-slate-300">0{index + 1}/04</span>
+                  </div>
+
+                  <div className="relative mt-8 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 text-slate-700 transition duration-500 group-hover:scale-110 group-hover:bg-slate-950 group-hover:text-white">
+                    <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${item.accent} opacity-0 blur-md transition duration-500 group-hover:opacity-25`} />
+                    <span className="relative">{item.icon}</span>
+                  </div>
+
+                  <p className="mt-7 text-[10px] font-black uppercase tracking-[.17em] text-slate-400">{item.eyebrow}</p>
+                  <h3 className="mt-2 text-xl font-black leading-tight tracking-tight text-slate-950">{item.title}</h3>
+                  <p className="mt-3 text-xs leading-6 text-slate-500">{item.text}</p>
+
+                  <div className="mt-7 flex items-center gap-2 text-[11px] font-black text-slate-400 transition group-hover:text-slate-900">
+                    <span className={`h-1.5 w-1.5 rounded-full bg-gradient-to-r ${item.accent}`} />
+                    BlankLearn matching layer
+                  </div>
+                </article>
+              </Reveal>
+            ))}
+          </div>
         </div>
 
-        <div className="space-y-3">
-          {faqs.map((f, i) => (
-            <div key={i} className="border border-slate-200 rounded-2xl overflow-hidden">
-              <button
-                onClick={() => setOpenIdx(openIdx === i ? null : i)}
-                className="w-full text-left p-4 font-bold text-xs sm:text-sm text-slate-900 flex justify-between items-center hover:bg-slate-50"
-              >
-                <span>{f.q}</span>
-                <span className="text-blue-600 font-mono text-base">{openIdx === i ? "−" : "+"}</span>
-              </button>
-              {openIdx === i && (
-                <div className="p-4 pt-0 text-xs text-slate-600 leading-relaxed border-t border-slate-100 mt-2">
-                  {f.a}
+        <Reveal>
+          <div className="mt-8 overflow-hidden rounded-[30px] border border-slate-200 bg-slate-950 p-5 text-white shadow-[0_25px_70px_rgba(15,23,42,.14)] sm:p-6">
+            <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-4">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-white/10 text-blue-300">
+                  <ShieldCheck size={19} />
                 </div>
-              )}
+                <div>
+                  <p className="text-sm font-black">The important part happens behind the scenes.</p>
+                  <p className="mt-1 max-w-2xl text-xs leading-5 text-white/45">
+                    We use your class, board, program, teaching mode and selected slot to find an eligible teacher and available batch.
+                  </p>
+                </div>
+              </div>
+              <button onClick={onDemo} className="shrink-0 rounded-xl bg-white px-5 py-3 text-xs font-black text-slate-950 transition hover:-translate-y-0.5 hover:bg-blue-50">
+                Start with a demo <ArrowRight className="ml-1 inline" size={14} />
+              </button>
+            </div>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+function Programs({ onDemo }: { onDemo: () => void }) {
+  return (
+    <section id="programs" className="bg-[#f7f8fb] py-24">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <Reveal>
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-[.2em] text-blue-600">Demo programs</p>
+              <h2 className="mt-3 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl">Start with what your child needs.</h2>
+            </div>
+            <p className="max-w-md text-sm leading-6 text-slate-500">The initial demo experience focuses on three simple choices. More programs can be added later without changing the booking experience.</p>
+          </div>
+        </Reveal>
+
+        <div className="mt-12 grid gap-5 md:grid-cols-3">
+          {DEMO_PROGRAMS.map((program, i) => (
+            <Reveal key={program.title}>
+              <article className={`group relative h-full overflow-hidden rounded-[28px] border p-7 transition duration-500 hover:-translate-y-1 ${i === 2 ? "border-blue-200 bg-slate-950 text-white shadow-[0_25px_60px_rgba(15,23,42,.14)]" : "border-slate-200 bg-white text-slate-950"}`}>
+                <div className={`grid h-11 w-11 place-items-center rounded-2xl ${i === 2 ? "bg-white/10 text-blue-300" : "bg-blue-50 text-blue-600"}`}>
+                  {i === 0 ? <BookOpen size={19} /> : i === 1 ? <Sparkles size={19} /> : <Zap size={19} />}
+                </div>
+                <h3 className="mt-8 text-xl font-black">{program.title}</h3>
+                <p className={`mt-3 text-sm leading-6 ${i === 2 ? "text-white/55" : "text-slate-500"}`}>{program.text}</p>
+                <button onClick={onDemo} className={`mt-8 text-xs font-black ${i === 2 ? "text-blue-300" : "text-blue-600"}`}>
+                  Book this demo <ArrowRight className="ml-1 inline transition group-hover:translate-x-1" size={14} />
+                </button>
+              </article>
+            </Reveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Pricing({ onDemo }: { onDemo: () => void }) {
+  const plans = [
+    { duration: "1 month", weeks: "Flexible start", prices: [1500, 2500], saving: "Monthly" },
+    { duration: "3 months", weeks: "Save on 3 months", prices: [4200, 7000], saving: "Save ₹300 / ₹500" },
+    { duration: "6 months", weeks: "Best long-term value", prices: [8100, 13500], saving: "Best value" },
+  ];
+  const included = [
+    "Small batch live classes",
+    "Teacher–parent communication",
+    "Student and parent dashboards",
+    "Schedule, reminders and attendance",
+    "Homework, assignments and study PDFs",
+    "Class recordings and doubt support",
+    "Teacher feedback and progress updates",
+  ];
+  const premium = [
+    "Monday–Saturday live classes",
+    "Extra practice and revision sessions",
+    "Weekly tests and performance reports",
+    "Dedicated doubt-solving sessions",
+    "Personalized improvement plan",
+    "Monthly parent–teacher interaction",
+    "Exam preparation support",
+  ];
+
+  return (
+    <section id="pricing" className="relative overflow-hidden bg-[#f7f9fd] py-24 sm:py-28">
+      <div className="pointer-events-none absolute -left-40 top-20 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -right-40 bottom-0 h-96 w-96 rounded-full bg-violet-500/10 blur-3xl" />
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <Reveal>
+          <div className="mx-auto max-w-3xl text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white px-4 py-2 text-[10px] font-black uppercase tracking-[.2em] text-blue-700 shadow-sm">
+              <Sparkles size={13} /> Simple, transparent plans
+            </div>
+            <h2 className="mt-5 text-4xl font-black leading-tight tracking-[-.04em] text-slate-950 sm:text-6xl">
+              The right rhythm.
+              <span className="block text-blue-600">A clearer way to grow.</span>
+            </h2>
+            <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
+              Choose three or six live learning days each week, then save with a 3 or 6 month plan. Every class is taught live in a small group.
+            </p>
+          </div>
+        </Reveal>
+
+        <div className="mt-12 grid items-stretch gap-5 lg:grid-cols-3">
+          {plans.map((plan, planIndex) => (
+            <Reveal key={plan.duration}>
+              <article className={`premium-card relative h-full overflow-hidden rounded-[30px] border bg-white p-6 shadow-[0_18px_55px_rgba(15,23,42,.07)] sm:p-7 ${planIndex === 2 ? "border-indigo-300 ring-2 ring-indigo-100" : "border-slate-200"}`}>
+                {planIndex === 2 && <div className="absolute right-5 top-5 rounded-full bg-indigo-600 px-3 py-1.5 text-[9px] font-black uppercase tracking-[.12em] text-white shadow-lg shadow-indigo-600/20">Best value</div>}
+                <div className="flex items-center gap-3">
+                  <div className={`grid h-12 w-12 place-items-center rounded-2xl ${planIndex === 2 ? "bg-indigo-600 text-white" : "bg-blue-50 text-blue-700"}`}>
+                    {planIndex === 2 ? <GraduationCap size={22} /> : <CalendarDays size={20} />}
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[.15em] text-slate-400">{plan.weeks}</p>
+                    <h3 className="mt-0.5 text-2xl font-black tracking-tight text-slate-950">{plan.duration}</h3>
+                  </div>
+                </div>
+
+                <div className="mt-7 space-y-3">
+                  {plan.prices.map((price, frequencyIndex) => {
+                    const frequency = frequencyIndex === 0 ? "3 days / week" : "6 days / week";
+                    const monthly = Math.round(price / (planIndex === 0 ? 1 : planIndex === 1 ? 3 : 6));
+                    return (
+                      <div key={frequency} className={`rounded-2xl border p-4 ${frequencyIndex === 1 && planIndex === 2 ? "border-indigo-200 bg-indigo-50/80" : "border-slate-100 bg-slate-50/80"}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs font-bold text-slate-600">{frequency}</span>
+                          {frequencyIndex === 1 && planIndex > 0 && <span className="rounded-full bg-emerald-100 px-2 py-1 text-[8px] font-black uppercase tracking-wide text-emerald-700">Intensive</span>}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-baseline gap-x-2">
+                          <span className="text-3xl font-black tracking-tight text-slate-950">₹{price.toLocaleString("en-IN")}</span>
+                          <span className="text-[11px] font-semibold text-slate-400">/{plan.duration.replace(" ", "-")}</span>
+                        </div>
+                        {planIndex > 0 && <p className="mt-1 text-[10px] font-semibold text-slate-500">≈ ₹{monthly.toLocaleString("en-IN")} per month · {price === 4200 ? "₹300" : price === 7000 ? "₹500" : price === 8100 ? "₹900" : "₹1,500"} saved</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button onClick={onDemo} className={`mt-5 flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-xs font-black transition hover:-translate-y-0.5 ${planIndex === 2 ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 hover:bg-indigo-700" : "bg-slate-950 text-white hover:bg-blue-700"}`}>
+                  Find my class <ArrowRight size={15} />
+                </button>
+                <p className="mt-3 text-center text-[9px] font-medium text-slate-400">Book a demo first · Choose your class and schedule</p>
+              </article>
+            </Reveal>
+          ))}
+        </div>
+
+        <div className="mt-8 grid gap-5 lg:grid-cols-2">
+          <Reveal>
+            <div className="h-full rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><Check size={19} /></div>
+                <div><h3 className="font-black text-slate-950">Included with every plan</h3><p className="mt-0.5 text-[11px] text-slate-500">Everything needed for steady learning.</p></div>
+              </div>
+              <ul className="mt-5 grid gap-x-5 gap-y-3 sm:grid-cols-2">
+                {included.map((feature) => <li key={feature} className="flex items-start gap-2 text-[11px] font-medium leading-5 text-slate-600"><Check size={14} className="mt-0.5 shrink-0 text-emerald-600" />{feature}</li>)}
+              </ul>
+            </div>
+          </Reveal>
+          <Reveal>
+            <div className="relative h-full overflow-hidden rounded-[28px] bg-slate-950 p-6 text-white shadow-[0_22px_60px_rgba(15,23,42,.16)] sm:p-7">
+              <div className="absolute -right-12 -top-16 h-48 w-48 rounded-full bg-indigo-500/25 blur-3xl" />
+              <div className="relative flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-400/15 text-indigo-300"><Zap size={19} /></div>
+                <div><h3 className="font-black">For students ready to go further</h3><p className="mt-0.5 text-[11px] text-white/50">Choose 6 days a week for a more intensive routine.</p></div>
+              </div>
+              <ul className="relative mt-5 grid gap-x-5 gap-y-3 sm:grid-cols-2">
+                {premium.map((feature) => <li key={feature} className="flex items-start gap-2 text-[11px] font-medium leading-5 text-white/75"><Check size={14} className="mt-0.5 shrink-0 text-indigo-300" />{feature}</li>)}
+              </ul>
+            </div>
+          </Reveal>
+        </div>
+
+        <p className="mt-6 text-center text-[10px] leading-5 text-slate-400">Final class availability and schedule are confirmed when you book. A demo helps us match your child with the right teacher and small batch.</p>
+      </div>
+    </section>
+  );
+}
+
+function WhyBlankLearn({ onDemo }: { onDemo: () => void }) {
+  return (
+    <section className="bg-white py-24">
+      <div className="mx-auto grid max-w-7xl gap-14 px-4 sm:px-6 lg:grid-cols-[.9fr_1.1fr] lg:px-8">
+        <Reveal>
+          <div className="lg:sticky lg:top-28">
+            <p className="text-[11px] font-black uppercase tracking-[.2em] text-blue-600">Why BlankLearn</p>
+            <h2 className="mt-3 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl">More room for questions. More room to learn.</h2>
+            <p className="mt-5 max-w-lg text-sm leading-6 text-slate-500">
+              BlankLearn is designed around live interaction rather than simply putting another video in front of a student.
+            </p>
+            <button onClick={onDemo} className="mt-7 rounded-xl bg-blue-600 px-5 py-3 text-xs font-bold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
+              Experience a demo
+            </button>
+          </div>
+        </Reveal>
+
+        <div className="space-y-4">
+          {[
+            ["Small live groups", "Group demos are capped at 5 students, keeping the classroom intentionally small."],
+            ["Board + class matching", "The booking flow uses the student's class and board when looking for an eligible teacher."],
+            ["Fixed one-hour slots", "Teachers work with predefined one-hour availability windows so scheduling stays clear."],
+            ["Real teacher interaction", "Students can ask questions, respond, practise and participate during the live class."],
+          ].map(([title, text], i) => (
+            <Reveal key={title}>
+              <div className="group rounded-[24px] border border-slate-200 bg-slate-50 p-6 transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40">
+                <div className="flex gap-5">
+                  <div className="font-mono text-xs font-bold text-blue-600">0{i + 1}</div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-950">{title}</h3>
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">{text}</p>
+                  </div>
+                </div>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FAQ() {
+  const [open, setOpen] = useState(0);
+
+  return (
+    <section id="faq" className="bg-[#f7f8fb] py-24">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6">
+        <Reveal>
+          <div className="text-center">
+            <p className="text-[11px] font-black uppercase tracking-[.2em] text-blue-600">FAQ</p>
+            <h2 className="mt-3 text-4xl font-black tracking-tight text-slate-950">Questions parents usually ask.</h2>
+          </div>
+        </Reveal>
+
+        <div className="mt-10 space-y-3">
+          {FAQS.map(([q, a], i) => (
+            <div key={q} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <button onClick={() => setOpen(open === i ? -1 : i)} className="flex w-full items-center justify-between gap-5 p-5 text-left">
+                <span className="text-sm font-bold text-slate-950">{q}</span>
+                <ChevronDown className={`shrink-0 transition ${open === i ? "rotate-180 text-blue-600" : "text-slate-400"}`} size={17} />
+              </button>
+              {open === i && <div className="border-t border-slate-100 px-5 pb-5 pt-4 text-sm leading-6 text-slate-500">{a}</div>}
             </div>
           ))}
         </div>
       </div>
     </section>
   );
-};
+}
 
-// =========================================================
-// 9. FOOTER & STICKY MOBILE BAR
-// =========================================================
-const Footer = ({ onBookDemoClick }: { onBookDemoClick: () => void }) => (
-  <footer className="bg-slate-950 text-slate-400 py-12 px-4 sm:px-6 text-xs">
-    <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-6 border-b border-slate-800 pb-8">
-      <div>
-        <span className="font-black text-white text-base">Blanklearn Education</span>
-        <p className="text-[11px] text-slate-500 mt-0.5">Empowering young minds with 1:5 live learning.</p>
-      </div>
-      <div className="flex gap-4">
-        <button onClick={onBookDemoClick} className="text-white font-bold hover:underline">
-          Book Free Demo
-        </button>
-        <Link href="/privacy" className="hover:text-white">Privacy Policy</Link>
-        <Link href="/terms" className="hover:text-white">Terms of Service</Link>
-      </div>
-    </div>
-    <div className="max-w-7xl mx-auto pt-6 text-center text-[11px] text-slate-500">
-      © 2026 Blanklearn Education. All rights reserved. • Helpline: +91 9235044520
-    </div>
-  </footer>
-);
-
-const StickyBookingBar = ({ onBookDemoClick }: { onBookDemoClick: () => void }) => {
-  const [isVisible, setIsVisible] = useState(false);
-  useEffect(() => {
-    const toggle = () => setIsVisible(window.scrollY > 300);
-    window.addEventListener("scroll", toggle);
-    return () => window.removeEventListener("scroll", toggle);
-  }, []);
-
+function FinalCTA({ onDemo }: { onDemo: () => void }) {
   return (
-    <div className={`fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-3 z-40 md:hidden transition-transform ${isVisible ? "translate-y-0" : "translate-y-full"}`}>
-      <div className="flex justify-between items-center">
-        <div>
-          <p className="font-black text-slate-900 text-xs">🔥 ₹2499/mo Plan</p>
-          <p className="text-[10px] text-emerald-600 font-bold">100% Free Trial Pod</p>
-        </div>
-        <button
-          onClick={onBookDemoClick}
-          className="bg-blue-600 text-white font-black text-xs px-4 py-2 rounded-xl shadow-md"
-        >
-          Book Demo Now
+    <section className="relative overflow-hidden bg-slate-950 py-24 text-white">
+      <div className="absolute left-1/2 top-0 h-72 w-72 -translate-x-1/2 rounded-full bg-blue-500/20 blur-3xl" />
+      <div className="relative mx-auto max-w-4xl px-4 text-center sm:px-6">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-white/10 bg-white/5 text-blue-300"><Sparkles size={19} /></div>
+        <h2 className="mt-7 text-4xl font-black tracking-tight sm:text-6xl">Let your child experience the class first.</h2>
+        <p className="mx-auto mt-5 max-w-2xl text-sm leading-6 text-white/50">Choose a class, pick a slot and see what a focused live classroom feels like.</p>
+        <button onClick={onDemo} className="mt-8 rounded-2xl bg-white px-7 py-4 text-sm font-black text-slate-950 transition hover:-translate-y-1 hover:bg-blue-50">
+          Book a live demo <ArrowRight className="ml-1 inline" size={16} />
         </button>
       </div>
-    </div>
+    </section>
   );
-};
+}
+
+function Footer() {
+  return (
+    <footer className="bg-[#080d16] px-4 py-14 text-white sm:px-6">
+      <div className="mx-auto max-w-7xl">
+        <div className="grid gap-12 md:grid-cols-[1.4fr_.7fr_.7fr_1.1fr]">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <BrandLogo className="h-9 w-9 rounded-xl object-cover" />
+              <span className="text-lg font-black">BlankLearn</span>
+            </div>
+            <p className="mt-5 max-w-sm text-sm leading-6 text-white/40">Live learning designed around small groups, real teachers and a simpler path from curiosity to confidence.</p>
+          </div>
+
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[.18em] text-white/35">Explore</p>
+            <div className="mt-4 space-y-3 text-sm text-white/60">
+              <Link className="block hover:text-white" href="/how-it-works">How it works</Link>
+              <Link className="block hover:text-white" href="/teachers">Teachers</Link>
+              <Link className="block hover:text-white" href="/pricing">Pricing</Link>
+              <Link className="block hover:text-white" href="/faq">FAQ</Link>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[.18em] text-white/35">Account</p>
+            <div className="mt-4 space-y-3 text-sm text-white/60">
+              <Link className="block hover:text-white" href="/student-auth">Student login</Link>
+              <Link className="block hover:text-white" href="/student-auth">Student signup</Link>
+              <Link className="block hover:text-white" href="/contact">Contact</Link>
+              <Link className="block hover:text-white" href="/privacy">Privacy</Link>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/[.04] p-6">
+            <p className="text-[10px] font-black uppercase tracking-[.18em] text-blue-300">For teachers</p>
+            <h3 className="mt-3 text-xl font-black">Teach with BlankLearn.</h3>
+            <p className="mt-2 text-sm leading-6 text-white/45">Create your profile, add the boards, classes, subjects and one-hour slots you teach.</p>
+            <Link href="/teacher-auth" className="mt-5 inline-flex items-center rounded-xl bg-white px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-blue-50">
+              Apply as a teacher <ArrowRight className="ml-1" size={14} />
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-12 flex flex-col justify-between gap-4 border-t border-white/10 pt-6 text-[11px] text-white/30 sm:flex-row">
+          <p>© 2026 BlankLearn. All rights reserved.</p>
+          <div className="flex gap-5">
+            <Link href="/terms" className="hover:text-white/70">Terms</Link>
+            <Link href="/privacy" className="hover:text-white/70">Privacy</Link>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+}
 
 export default function HomePage() {
-  const [isDemoModalOpen, setDemoModalOpen] = useState(false);
+  const [demoOpen, setDemoOpen] = useState(false);
 
   return (
-    <div className="flex flex-col min-h-screen bg-white text-slate-900 selection:bg-blue-100">
-      <Suspense fallback={null}>
-        <DemoBookingModal open={isDemoModalOpen} onOpenChange={setDemoModalOpen} />
-      </Suspense>
-      <NavigationBar onBookDemoClick={() => setDemoModalOpen(true)} />
-      <main>
-        <HeroHeader onBookDemoClick={() => setDemoModalOpen(true)} />
-        <StudentHighlights />
-        <PainAndSolution onBookDemoClick={() => setDemoModalOpen(true)} />
-        <SocialProof />
-        <PricingPlan onBookDemoClick={() => setDemoModalOpen(true)} />
-        <FinalFAQ />
-      </main>
-      <Footer onBookDemoClick={() => setDemoModalOpen(true)} />
-      <StickyBookingBar onBookDemoClick={() => setDemoModalOpen(true)} />
-    </div>
+    <>
+      <style jsx global>{`
+        html { scroll-behavior: smooth; }
+        body { background: #fff; }
+        .hero-grid {
+          background-image:
+            linear-gradient(rgba(15,23,42,.045) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(15,23,42,.045) 1px, transparent 1px);
+          background-size: 42px 42px;
+          mask-image: linear-gradient(to bottom, black, transparent 82%);
+        }
+        .hero-underline {
+          transform: rotate(-1.5deg);
+          transform-origin: left center;
+        }
+        .premium-card { transform: translateZ(0); }
+        .premium-card::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(120deg, transparent 25%, rgba(255,255,255,.45) 50%, transparent 75%); transform: translateX(-120%); transition: transform .8s ease; }
+        .premium-card:hover::before { transform: translateX(120%); }
+        .float-card { animation: floatA 5s ease-in-out infinite; }
+        .float-card-delayed { animation: floatB 6s ease-in-out infinite; }
+        .reveal { animation: reveal .7s cubic-bezier(.22,1,.36,1) both; }
+        .reveal:nth-child(2) { animation-delay: .06s; }
+        .reveal:nth-child(3) { animation-delay: .12s; }
+        .reveal:nth-child(4) { animation-delay: .18s; }
+        @keyframes reveal {
+          from { opacity: 0; transform: translateY(18px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes floatA {
+          0%,100% { transform: translateY(0) rotate(-1deg); }
+          50% { transform: translateY(-9px) rotate(0deg); }
+        }
+        @keyframes floatB {
+          0%,100% { transform: translateY(0); }
+          50% { transform: translateY(8px); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          html { scroll-behavior: auto; }
+          *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+        }
+      `}</style>
+
+      <div className="min-h-screen bg-white text-slate-950">
+        <DemoModal open={demoOpen} onClose={() => setDemoOpen(false)} />
+        <Navbar onDemo={() => setDemoOpen(true)} />
+        <main>
+          <Hero onDemo={() => setDemoOpen(true)} />
+          <VideoShowcase />
+          <HowItWorks onDemo={() => setDemoOpen(true)} />
+          <Programs onDemo={() => setDemoOpen(true)} />
+          <Pricing onDemo={() => setDemoOpen(true)} />
+          <WhyBlankLearn onDemo={() => setDemoOpen(true)} />
+          <FAQ />
+          <FinalCTA onDemo={() => setDemoOpen(true)} />
+        </main>
+        <Footer />
+      </div>
+    </>
   );
 }

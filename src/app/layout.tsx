@@ -1,3 +1,4 @@
+import { MarketingAnalytics } from "@/components/MarketingAnalytics";
 ﻿import type { Metadata } from "next";
 import "./globals.css";
 
@@ -15,6 +16,7 @@ export default function RootLayout({
     <html lang="en" className="light">
       <body className="bg-slate-50 text-slate-900 min-h-screen selection:bg-indigo-100 selection:text-indigo-900">
         {children}
+        <MarketingAnalytics/>
       </body>
     </html>
   );

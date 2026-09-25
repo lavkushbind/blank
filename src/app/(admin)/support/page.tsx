@@ -1,74 +1,48 @@
 "use client";
 
-import React, { useState } from "react";
-import { Mail, CheckCircle2, AlertCircle } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useMemo, useState } from "react";
+import { collection, doc, getDocs, limit, orderBy, query, updateDoc } from "firebase/firestore";
+import { CheckCircle2, Loader2, RefreshCw, Send } from "lucide-react";
+import { db } from "@/lib/firebase/client";
+
+type Ticket = { id: string; name?: string; email?: string; phone?: string; message?: string; status?: string; adminNote?: string; createdAt?: { toDate?: () => Date } };
 
 export default function AdminSupportPage() {
-  const [tickets, setTickets] = useState([
-    { id: "T-1029", name: "Rajesh Sharma", role: "Parent", subject: "Class 8 ICSE Maths timing slots", status: "OPEN", time: "15 mins ago" },
-    { id: "T-1028", name: "Ananya Iyer", role: "Parent", subject: "Refund request for monthly pod", status: "OPEN", time: "2 hours ago" },
-    { id: "T-1027", name: "Pooja Verma", role: "Teacher", subject: "KYC Aadhaar update issue", status: "RESOLVED", time: "1 day ago" },
-  ]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [note, setNote] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const selected = useMemo(() => tickets.find((ticket) => ticket.id === selectedId) || null, [tickets, selectedId]);
 
-  const markResolved = (id: string) => {
-    setTickets(prev => prev.map(t => t.id === id ? { ...t, status: "RESOLVED" } : t));
-  };
+  async function load() {
+    setLoading(true); setError("");
+    try {
+      const snap = await getDocs(query(collection(db, "support_tickets"), orderBy("createdAt", "desc"), limit(100)));
+      const rows = snap.docs.map((item) => ({ id: item.id, ...item.data() } as Ticket));
+      setTickets(rows); setSelectedId((current) => rows.some((row) => row.id === current) ? current : rows[0]?.id || "");
+    } catch (cause) { console.error("Support tickets could not be loaded", cause); setError("Support tickets could not be loaded."); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-      <div className="border-b border-slate-200 pb-4">
-        <h1 className="text-2xl font-black text-slate-950">Helpdesk & Support Operations</h1>
-        <p className="text-xs text-slate-500">Manage parent inquiries and teacher support tickets.</p>
-      </div>
+  async function saveTicket(status = selected?.status || "OPEN") {
+    if (!selected) return;
+    setSaving(true); setError(""); setMessage("");
+    try {
+      await updateDoc(doc(db, "support_tickets", selected.id), { status, adminNote: note.trim(), updatedAt: new Date() });
+      setTickets((rows) => rows.map((row) => row.id === selected.id ? { ...row, status, adminNote: note.trim() } : row));
+      setMessage(status === "RESOLVED" ? "Ticket marked resolved and the internal note was saved." : "Internal note saved. No email or message was sent to the requester.");
+    } catch (cause) { console.error("Ticket update failed", cause); setError("Ticket update failed."); }
+    finally { setSaving(false); }
+  }
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Active Tickets List */}
-        <div className="md:col-span-1 space-y-3">
-          {tickets.map(t => (
-            <div key={t.id} className="bg-white border border-slate-200 p-4 rounded-2xl cursor-pointer hover:border-indigo-300 transition shadow-sm space-y-2">
-              <div className="flex justify-between items-start">
-                <span className="text-[10px] font-bold text-slate-400">{t.id} • {t.time}</span>
-                <Badge variant={t.status === "OPEN" ? "destructive" : "success"}>{t.status}</Badge>
-              </div>
-              <h4 className="font-bold text-slate-900 text-xs">{t.name} ({t.role})</h4>
-              <p className="text-[11px] text-slate-500 truncate">{t.subject}</p>
-            </div>
-          ))}
-        </div>
+  useEffect(() => { setNote(selected?.adminNote || ""); }, [selected?.id]);
 
-        {/* Ticket Reply View */}
-        <div className="md:col-span-2 bg-white border border-slate-200 p-6 sm:p-8 rounded-3xl shadow-sm space-y-5">
-          <div className="flex justify-between items-start border-b border-slate-100 pb-4">
-            <div>
-              <h2 className="text-lg font-black text-slate-950">Class 8 ICSE Maths timing slots</h2>
-              <p className="text-xs text-slate-500 mt-1">From: Rajesh Sharma (Parent) • +91 9821011111</p>
-            </div>
-            <Badge variant="destructive">OPEN</Badge>
-          </div>
-
-          <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-xs text-slate-700 leading-relaxed font-medium">
-            "Hello, I wanted to know if Rahul Sir has any evening slots available around 7 PM for Class 8 ICSE Mathematics? The current 5 PM slot clashes with my son's football practice."
-          </div>
-
-          <div className="space-y-3 pt-4">
-            <label className="block text-xs font-bold text-slate-700">Reply via WhatsApp / Email</label>
-            <textarea
-              rows={4}
-              placeholder="Type your official response..."
-              className="w-full text-xs font-medium p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-600"
-            />
-            <div className="flex gap-3">
-              <button className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm">
-                Send Reply
-              </button>
-              <button onClick={() => markResolved("T-1029")} className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl">
-                Mark as Resolved ✓
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <main className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6"><header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5"><div><p className="text-xs font-bold uppercase tracking-widest text-indigo-600">Support queue</p><h1 className="mt-2 text-2xl font-black text-slate-950">Contact requests</h1><p className="mt-1 text-sm text-slate-600">Review saved requests and record internal notes. Replies are not sent from this screen.</p></div><button onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold"><RefreshCw size={15} className={loading ? "animate-spin" : ""}/>Refresh</button></header>
+    {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</p>}{message && <p role="status" className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">{message}</p>}
+    {loading ? <div className="py-16 text-center text-slate-500"><Loader2 className="mx-auto animate-spin"/><p className="mt-3 text-sm">Loading requests…</p></div> : tickets.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><CheckCircle2 className="mx-auto text-slate-300" size={32}/><h2 className="mt-3 font-bold text-slate-800">No support requests yet</h2><p className="mt-1 text-sm text-slate-500">Submitted contact forms will appear here.</p></div> : <div className="grid gap-5 lg:grid-cols-[320px_1fr]"><aside className="space-y-2">{tickets.map((ticket) => <button key={ticket.id} onClick={() => setSelectedId(ticket.id)} className={`w-full rounded-2xl border p-4 text-left ${ticket.id === selectedId ? "border-indigo-300 bg-indigo-50" : "border-slate-200 bg-white"}`}><div className="flex justify-between gap-2"><span className="truncate text-sm font-bold text-slate-900">{ticket.name || "Contact request"}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${ticket.status === "RESOLVED" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{ticket.status || "OPEN"}</span></div><p className="mt-1 truncate text-xs text-slate-500">{ticket.email || "No email"}</p><p className="mt-2 line-clamp-2 text-xs text-slate-600">{ticket.message}</p></button>)}</aside>{selected && <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"><div className="border-b border-slate-100 pb-4"><h2 className="text-lg font-black text-slate-950">{selected.name || "Contact request"}</h2><p className="mt-1 text-sm text-slate-600">{selected.email} {selected.phone && `· ${selected.phone}`}</p><p className="mt-1 text-xs text-slate-400">{selected.createdAt?.toDate?.()?.toLocaleString?.() || "Date not available"}</p></div><div className="mt-5 whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-800">{selected.message || "No message content"}</div><label className="mt-5 block text-xs font-bold text-slate-700">Internal note<textarea rows={4} maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 p-3 text-sm font-normal outline-none focus:border-indigo-400" placeholder="Record follow-up details for your team"/></label><div className="mt-4 flex flex-wrap gap-3"><button onClick={() => void saveTicket()} disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{saving ? <Loader2 size={15} className="animate-spin"/> : <Send size={15}/>}Save internal note</button>{selected.status !== "RESOLVED" && <button onClick={() => void saveTicket("RESOLVED")} disabled={saving} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50">Mark resolved</button>}</div></section>}</div>}
+  </main>;
 }

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase/client";
+import { auth } from "@/lib/firebase/client";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 import { CheckCircle2, DollarSign } from "lucide-react";
 
@@ -26,9 +27,11 @@ export default function AdminPayoutsPage() {
 
   const approvePayout = async (id: string) => {
     try {
-      await updateDoc(doc(db, "payout_requests", id), { status: "SETTLED" });
-      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: "SETTLED" } : r));
-      alert("Payout marked as SETTLED in Firestore.");
+      const transferReference = window.prompt("Complete the bank transfer first, then enter the UTR/reference to record it:")?.trim();
+      if (!transferReference) return;
+      await updateDoc(doc(db, "payout_requests", id), { status: "SETTLED", transferReference: transferReference.slice(0, 100), settledAt: new Date(), settledBy: auth.currentUser?.uid || null });
+      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: "SETTLED", transferReference } : r));
+      alert("Transfer reference recorded. No money was sent by BlankLearn.");
     } catch (err) {
       console.error("Payout approval error:", err);
     }
@@ -64,11 +67,11 @@ export default function AdminPayoutsPage() {
                   onClick={() => approvePayout(r.id)}
                   className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm"
                 >
-                  Approve NEFT Transfer ✓
+                  Record completed bank transfer
                 </button>
               ) : (
                 <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-xl border border-emerald-200">
-                  ✓ Settled via Bank Transfer
+                  ✓ Transfer recorded{r.transferReference ? ` · ${r.transferReference}` : ""}
                 </span>
               )}
             </div>

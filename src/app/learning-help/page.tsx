@@ -1,0 +1,2 @@
+import { HelpChat } from "@/components/HelpChat";
+export default function Page(){return <main className="min-h-screen bg-slate-50 p-5"><div className="mx-auto max-w-3xl space-y-5"><a href="/hub" className="text-sm text-indigo-600">Student dashboard</a><a href="/dashboard" className="ml-4 text-sm text-indigo-600">Teacher dashboard</a><h1 className="text-2xl font-extrabold">BlankLearn Help</h1><HelpChat/></div></main>;}

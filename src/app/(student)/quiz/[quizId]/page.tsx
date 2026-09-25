@@ -1,16 +1,16 @@
 "use client";
 
-import React, { useState, use } from "react";
-import { auth, db } from "@/lib/firebase/client";
-import { doc, updateDoc, increment } from "firebase/firestore";
+import React, { useState, use, useEffect } from "react";
+import { auth } from "@/lib/firebase/client";
+import { onAuthStateChanged, User } from "firebase/auth";
 import Link from "next/link";
 import { Award, ChevronRight, CheckCircle2 } from "lucide-react";
 import { CoinShowerCelebration } from "@/components/student/CoinShowerCelebration";
 
 const QUESTIONS = [
-  { id: 1, text: "What is the solution of the linear equation: 3x - 5 = 16?", options: ["x = 5", "x = 7", "x = 6", "x = 9"], correct: 1 },
-  { id: 2, text: "Which property allows us to write 2(x + 3) as 2x + 6?", options: ["Commutative", "Associative", "Distributive", "Closure"], correct: 2 },
-  { id: 3, text: "If the perimeter of a square is 36 cm, what is its side length?", options: ["6 cm", "9 cm", "12 cm", "18 cm"], correct: 1 },
+  { id: 1, text: "What is the solution of the linear equation: 3x - 5 = 16?", options: ["x = 5", "x = 7", "x = 6", "x = 9"] },
+  { id: 2, text: "Which property allows us to write 2(x + 3) as 2x + 6?", options: ["Commutative", "Associative", "Distributive", "Closure"] },
+  { id: 3, text: "If the perimeter of a square is 36 cm, what is its side length?", options: ["6 cm", "9 cm", "12 cm", "18 cm"] },
 ];
 
 export default function StudentQuizPage({ params }: { params: Promise<{ quizId: string }> }) {
@@ -19,36 +19,54 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [score, setScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
-  const user = auth.currentUser;
+  const [saveError, setSaveError] = useState("");
+  const [answers, setAnswers] = useState<number[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [alreadyCompleted, setAlreadyCompleted] = useState(false);
+
+  useEffect(() => onAuthStateChanged(auth, (current) => setUser(current)), []);
+  useEffect(() => {
+    if (!user) { setLoading(false); return; }
+    let active = true;
+    (async () => {
+      try {
+        const response = await fetch("/api/student-quiz", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.message || "Quiz unavailable.");
+        if (active && result.completed) { setAlreadyCompleted(true); setIsFinished(true); setScore(Number(result.result?.coinsAwarded) || 0); }
+      } catch (error) { if (active) setSaveError(error instanceof Error ? error.message : "Quiz unavailable."); }
+      finally { if (active) setLoading(false); }
+    })();
+    return () => { active = false; };
+  }, [user]);
 
   const handleNext = async () => {
-    let newScore = score;
-    if (selectedOption === QUESTIONS[currentIdx].correct) {
-      newScore += 50;
-      setScore(newScore);
-    }
-
+    if (selectedOption === null) return;
+    const submittedAnswers = [...answers, selectedOption];
+    setAnswers(submittedAnswers);
     if (currentIdx + 1 < QUESTIONS.length) {
       setCurrentIdx(prev => prev + 1);
       setSelectedOption(null);
     } else {
-      setIsFinished(true);
-
-      // Real Firestore Coins Increment (+150 Coins & +1 Streak)
-      if (user) {
-        try {
-          await updateDoc(doc(db, "students", user.uid), {
-            coins: increment(newScore),
-            streakDays: increment(1),
-          });
-        } catch (err) {
-          console.error("Failed to update coins in Firestore:", err);
-        }
+      try {
+        if (!user) throw new Error("Sign in again to save quiz coins.");
+        const response = await fetch("/api/student-quiz", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ quizId: "daily-math", answers: submittedAnswers }) });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.message || "Quiz result could not be saved.");
+        setScore(Number(result.coinsAwarded) || 0);
+        setAlreadyCompleted(Boolean(result.completed));
+      } catch (err) {
+        console.error("Failed to save quiz result:", err);
+        setSaveError(err instanceof Error ? err.message : "Quiz result could not be saved.");
       }
+      setIsFinished(true);
     }
   };
 
   const q = QUESTIONS[currentIdx];
+
+  if (loading) return <main className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">Loading today's quiz…</main>;
 
   if (isFinished) {
     return (
@@ -61,11 +79,11 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
           <div className="space-y-1">
             <h2 className="text-xl font-black text-slate-950">Daily Micro-Quiz Completed!</h2>
             <p className="text-xs text-slate-500">
-              You scored <strong className="text-indigo-600 font-mono text-sm">+{score} Quiz Coins</strong>!
+              {alreadyCompleted ? "Today's quiz was already completed. Reward recorded: " : "You earned "}<strong className="text-indigo-600 font-mono text-sm">+{score} Quiz Coins</strong>.
             </p>
           </div>
-          <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 p-3 rounded-2xl font-bold">
-            ✓ Coins saved directly to your real Firestore profile.
+          <p className={`text-xs border p-3 rounded-2xl font-bold ${saveError ? "text-amber-900 bg-amber-50 border-amber-200" : "text-emerald-800 bg-emerald-50 border-emerald-200"}`}>
+            {saveError || "✓ Coins saved to your student profile."}
           </p>
           <Link
             href="/hub"

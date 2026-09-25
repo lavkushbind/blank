@@ -1,136 +1,26 @@
 "use client";
 
-import React, { useState } from "react";
-import { Play, Pause, Download, Calendar, Clock, BookOpen, ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { onAuthStateChanged, type User } from "firebase/auth";
+import { BookOpen, CheckCircle2, FileText, Loader2 } from "lucide-react";
+import { auth } from "@/lib/firebase/client";
+
+type Resource = { id: string; title: string; subject: string; status: string; date: string | null; startTime: string | null; summary: string; attendance: string | null; materials: Array<{ name: string; url: string }> };
 
 export default function StudentVaultPage() {
-  const recordings = [
-    {
-      id: "rec_01",
-      topic: "Linear Equations & Graph Plotting",
-      date: "18 September 2026",
-      duration: "58 mins",
-      teacher: "Rahul Sharma Sir (IIT Delhi)",
-      videoPreview: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=900",
-      chapters: [
-        { time: "00:00", title: "Introduction & Rules of Equality" },
-        { time: "14:20", title: "Variables on Both Sides (Step-by-Step)" },
-        { time: "35:10", title: "Live Whiteboard Student Problem Solutions" },
-        { time: "48:00", title: "5-Minute Quiz Discussion" },
-      ],
-    },
-    {
-      id: "rec_02",
-      topic: "Introduction to Algebraic Polynomials",
-      date: "15 September 2026",
-      duration: "61 mins",
-      teacher: "Rahul Sharma Sir (IIT Delhi)",
-      videoPreview: "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&q=80&w=900",
-      chapters: [
-        { time: "00:00", title: "Monomials vs Binomials" },
-        { time: "22:00", title: "Degree of Polynomials" },
-        { time: "45:30", title: "Common Sign Mistakes in Exams" },
-      ],
-    },
-  ];
-
-  const [activeRec, setActiveRec] = useState(recordings[0]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentChapter, setCurrentChapter] = useState(activeRec.chapters[0].title);
-
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
-      <div>
-        <h1 className="text-2xl font-black text-slate-950">Classroom Recordings Vault</h1>
-        <p className="text-xs text-slate-500">Watch past 1:5 live sessions with chapter bookmarks and download whiteboard notes.</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
-        {/* Main Interactive Video Player Stage (8 Cols) */}
-        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm space-y-4">
-          <div className="relative aspect-video bg-slate-950 flex items-center justify-center overflow-hidden group">
-            <img
-              src={activeRec.videoPreview}
-              alt="Video Preview"
-              className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition duration-300"
-            />
-            <button
-              onClick={() => setIsPlaying(!isPlaying)}
-              className="absolute w-16 h-16 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shadow-2xl transition group-hover:scale-110"
-            >
-              {isPlaying ? <Pause size={24} /> : <Play size={24} className="ml-1" />}
-            </button>
-            <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center text-xs text-white bg-black/60 backdrop-blur px-4 py-2 rounded-xl">
-              <span className="font-bold">Topic: {currentChapter}</span>
-              <span className="font-mono">58:00 Full Session</span>
-            </div>
-          </div>
-
-          <div className="p-6 pt-2 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-slate-950">{activeRec.topic}</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Mentor: {activeRec.teacher} • Recorded on {activeRec.date}
-                </p>
-              </div>
-              <button
-                onClick={() => alert("Downloading High-Res Teacher Whiteboard Notes (PDF)...")}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition"
-              >
-                <Download size={14} /> Download Notes PDF
-              </button>
-            </div>
-
-            {/* Chapter Bookmarks List */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">Chapter Bookmarks:</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {activeRec.chapters.map((ch, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => { setCurrentChapter(ch.title); setIsPlaying(true); }}
-                    className={`p-2.5 rounded-xl border text-left text-xs font-semibold flex items-center justify-between transition ${
-                      currentChapter === ch.title
-                        ? "bg-indigo-50 border-indigo-600 text-indigo-950 font-bold"
-                        : "bg-slate-50 border-slate-200 hover:border-slate-300 text-slate-700"
-                    }`}
-                  >
-                    <span className="truncate pr-2">{ch.title}</span>
-                    <span className="font-mono text-[10px] text-slate-500 shrink-0 font-bold">{ch.time}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right: Past Sessions Library (4 Cols) */}
-        <div className="lg:col-span-4 space-y-4">
-          <h3 className="text-sm font-black text-slate-900">Recorded Sessions Library</h3>
-          <div className="space-y-3">
-            {recordings.map((rec) => (
-              <div
-                key={rec.id}
-                onClick={() => { setActiveRec(rec); setCurrentChapter(rec.chapters[0].title); setIsPlaying(false); }}
-                className={`p-4 rounded-2xl border cursor-pointer transition space-y-2 ${
-                  activeRec.id === rec.id
-                    ? "bg-white border-indigo-600 shadow-md shadow-indigo-100"
-                    : "bg-white border-slate-200 hover:border-slate-300"
-                }`}
-              >
-                <h4 className="text-xs font-black text-slate-900">{rec.topic}</h4>
-                <div className="flex justify-between items-center text-[11px] text-slate-500">
-                  <span>{rec.date}</span>
-                  <span className="font-bold text-indigo-600">{rec.duration}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-      </div>
-    </div>
-  );
+  const [user, setUser] = useState<User | null>(null);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => onAuthStateChanged(auth, (current) => { setUser(current); if (!current) setLoading(false); }), []);
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    (async()=>{try{const response=await fetch("/api/student-vault",{headers:{Authorization:`Bearer ${await user.getIdToken()}`},cache:"no-store"});const data=await response.json();if(!response.ok||!data.success)throw new Error(data.message||"Resources could not be loaded.");if(active)setResources(data.resources||[]);}catch(cause){if(active)setError(cause instanceof Error?cause.message:"Resources could not be loaded.");}finally{if(active)setLoading(false);}})();
+    return()=>{active=false;};
+  },[user]);
+  return <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6"><p className="text-xs font-black uppercase tracking-[.18em] text-blue-700">Your learning library</p><h1 className="mt-2 text-3xl font-black text-slate-950">Class Vault</h1><p className="mt-2 text-sm text-slate-600">Lesson notes and PDFs your teacher has shared with your classes.</p>
+    {error&&<p role="alert" className="mt-5 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
+    {loading?<div className="py-20 text-center text-sm text-slate-500"><Loader2 className="mx-auto mb-2 animate-spin"/>Loading your class resources…</div>:resources.length===0?<div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center"><BookOpen className="mx-auto text-slate-300" size={30}/><h2 className="mt-4 text-base font-black text-slate-900">Your class library is empty</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">Materials will show up here after your teacher shares them in a class. You’ll also find class summaries after the teacher submits them.</p></div>:<div className="mt-6 space-y-4">{resources.map(resource=><article key={resource.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><span className="text-[10px] font-black uppercase tracking-[.14em] text-blue-700">{resource.subject}</span><h2 className="mt-1 text-lg font-black text-slate-950">{resource.title}</h2><p className="mt-1 text-xs text-slate-500">{resource.date?new Date(`${resource.date}T00:00:00`).toLocaleDateString("en-IN",{dateStyle:"medium"}):"Date unavailable"}{resource.startTime?` · ${resource.startTime}`:""}</p></div>{resource.attendance&&<span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700"><CheckCircle2 size={14}/>{resource.attendance}</span>}</div>{resource.summary&&<div className="mt-4 rounded-2xl bg-slate-50 p-4"><h3 className="text-xs font-black text-slate-800">Teacher’s class summary</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{resource.summary}</p></div>}{resource.materials.length>0&&<div className="mt-4"><h3 className="text-xs font-black text-slate-800">Shared materials</h3><div className="mt-2 flex flex-wrap gap-2">{resource.materials.map((material,index)=><a key={`${material.name}-${index}`} href={material.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs font-bold text-blue-700 hover:bg-blue-100"><FileText size={15}/>{material.name}</a>)}</div></div>}{!resource.summary&&!resource.materials.length&&<p className="mt-4 text-xs text-slate-400">No notes or materials were attached to this class.</p>}</article>)}</div>}
+  </main>;
 }

@@ -9,16 +9,7 @@ interface AttentionPoint {
 }
 
 export function AttentionCurveChart({ data }: { data?: AttentionPoint[] }) {
-  // Generate dummy 60-minute curve if none provided
-  const points = data || Array.from({ length: 60 }, (_, i) => {
-    let score = Math.floor(75 + Math.sin(i / 5) * 15 + (Math.random() * 8 - 4));
-    let isDrowsy = false;
-    if (i === 24 || i === 42) {
-      score = 35;
-      isDrowsy = true;
-    }
-    return { minute: i + 1, score: Math.max(20, Math.min(100, score)), isDrowsy };
-  });
+  const points = (data || []).filter((point) => Number.isFinite(point.minute) && Number.isFinite(point.score));
 
   const width = 700;
   const height = 220;
@@ -36,10 +27,10 @@ export function AttentionCurveChart({ data }: { data?: AttentionPoint[] }) {
 
   return (
     <div className="w-full bg-slate-900/90 border border-slate-800 p-5 rounded-2xl shadow-xl">
-      <div className="flex justify-between items-center mb-4">
+        <div className="flex justify-between items-center mb-4">
         <div>
-          <h3 className="text-white text-sm font-bold">60-Minute ML Attentiveness Timeline</h3>
-          <p className="text-slate-400 text-xs">Eye-Aspect Ratio (EAR) & Head-Pose In-Browser Diagnostics</p>
+          <h3 className="text-white text-sm font-bold">Class attention data</h3>
+          <p className="text-slate-400 text-xs">Only measured session data is shown.</p>
         </div>
         <div className="flex items-center gap-4 text-xs font-mono">
           <span className="flex items-center gap-1.5 text-emerald-400">
@@ -51,7 +42,7 @@ export function AttentionCurveChart({ data }: { data?: AttentionPoint[] }) {
         </div>
       </div>
 
-      <div className="relative overflow-x-auto">
+      {points.length === 0 ? <div className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-8 text-center text-xs text-slate-400">No attention data was recorded for this session.</div> : <div className="relative overflow-x-auto">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-48">
           {/* Grid lines */}
           <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="#334155" strokeDasharray="3" />
@@ -69,7 +60,7 @@ export function AttentionCurveChart({ data }: { data?: AttentionPoint[] }) {
             </g>
           ))}
         </svg>
-      </div>
+      </div>}
     </div>
   );
 }

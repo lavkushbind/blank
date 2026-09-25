@@ -17,8 +17,8 @@ export function InClassReactions() {
         if (data.event === "EMOJI_REACTION") {
           spawnEmoji(data.emoji);
         }
-      } catch (err) {
-        console.error("Reaction sync error", err);
+      } catch {
+        // Ignore unrelated or non-JSON room packets.
       }
     };
     room.on("dataReceived", handleData);

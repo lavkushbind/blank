@@ -3,29 +3,27 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { auth, db } from "@/lib/firebase/client";
+import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { 
-  Users, 
-  Video, 
-  Clock, 
-  Sparkles, 
-  ArrowRight, 
-  CheckCircle2, 
-  Volume2, 
-  BookOpen 
-} from "lucide-react";
+import { Users, Video, Clock, Sparkles, ArrowRight, CheckCircle2, BookOpen } from "lucide-react";
 
 export default function ParentHomePage() {
-  const [parentName, setParentName] = useState("Mr. Rajesh Sharma");
+  const [parentName, setParentName] = useState("Parent");
   const [children, setChildren] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const user = auth.currentUser;
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => onAuthStateChanged(auth, (current) => { setUser(current); setAuthReady(true); }), []);
 
   useEffect(() => {
+    if (!authReady) return;
+    if (!user) { setChildren([]); setLoading(false); return; }
+    const currentUser = user;
     async function fetchParentData() {
       try {
         setLoading(true);
-        const parentUid = user ? user.uid : "parent_current";
+        const parentUid = currentUser.uid;
 
         // 1. Fetch Real Parent Profile from Firestore
         const pSnap = await getDoc(doc(db, "parents", parentUid));
@@ -38,25 +36,7 @@ export default function ParentHomePage() {
         const sSnap = await getDocs(qStudents);
         const childList = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         
-        // Fallback demo child if none linked yet in DB
-        if (childList.length === 0) {
-          setChildren([
-            {
-              id: "child_aarav_01",
-              name: "Aarav Sharma",
-              grade: "Class 7 (CBSE)",
-              pod: "Math Titans (1:5 Micro-Batch)",
-              mentor: "Rahul Sharma Sir (IIT Delhi)",
-              isLiveNow: true,
-              joinedAt: "05:01 PM",
-              attendance: "96%",
-              coins: 450,
-              daysLeft: 3,
-            }
-          ]);
-        } else {
-          setChildren(childList);
-        }
+        setChildren(childList);
       } catch (err) {
         console.error("Parent home fetch error:", err);
       } finally {
@@ -64,7 +44,7 @@ export default function ParentHomePage() {
       }
     }
     fetchParentData();
-  }, [user]);
+  }, [user, authReady]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-8">
@@ -92,6 +72,7 @@ export default function ParentHomePage() {
         <div className="py-20 text-center text-xs text-slate-400">Loading children profiles from Firestore...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          {children.length === 0 && <div className="col-span-full rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><h2 className="text-lg font-black text-slate-900">No linked student accounts</h2><p className="mt-2 text-sm text-slate-600">Linking requires a verified parent account and a valid student pairing code.</p><Link href="/link-child" className="mt-5 inline-flex rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white">Link a student</Link></div>}
           {children.map((child) => (
             <div
               key={child.id}
@@ -103,7 +84,7 @@ export default function ParentHomePage() {
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                     <span>Class is LIVE right now</span>
                   </div>
-                  <span className="font-mono text-[11px]">Joined at {child.joinedAt || "05:00 PM"}</span>
+                  {child.joinedAt && <span className="font-mono text-[11px]">Joined at {child.joinedAt}</span>}
                 </div>
               )}
 
@@ -111,35 +92,30 @@ export default function ParentHomePage() {
                 <div className="flex justify-between items-start">
                   <h3 className="text-lg font-black text-slate-950">{child.name}</h3>
                   <span className="text-xs font-mono font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
-                    🪙 {child.coins || 450} Coins
+                    {typeof child.coins === "number" ? `${child.coins} Coins` : "Coins unavailable"}
                   </span>
                 </div>
-                <p className="text-xs font-bold text-indigo-600">{child.grade || "Class 7 (CBSE)"} • {child.pod || "1:5 Pod"}</p>
-                <p className="text-xs text-slate-500">Mentor: {child.mentor || "Verified Mentor"}</p>
+                <p className="text-xs font-bold text-indigo-600">{child.grade || "Grade not set"} • {child.pod || "No active batch"}</p>
+                <p className="text-xs text-slate-500">Mentor: {child.mentor || "Not assigned"}</p>
               </div>
 
               {/* Metrics */}
               <div className="grid grid-cols-2 gap-3 py-3 border-y border-slate-100 text-xs">
                 <div>
                   <span className="text-slate-400 block text-[11px]">Attendance</span>
-                  <span className="font-black text-slate-900 text-sm">{child.attendance || "95%"}</span>
+                  <span className="font-black text-slate-900 text-sm">{child.attendance ?? "No attendance data"}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[11px]">Renewal Status</span>
                   <span className="font-black text-sm text-emerald-700">
-                    Active Pod Seat
+                    {child.membershipStatus || "No membership data"}
                   </span>
                 </div>
               </div>
 
               {/* Actions */}
               <div className="space-y-2">
-                <Link
-                  href={`/report/batch-demo-101`}
-                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center justify-center gap-1.5"
-                >
-                  <Volume2 size={15} /> View Diagnostic Proof Report
-                </Link>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-xs text-slate-500">Class reports appear here when a teacher submits them.</div>
                 <Link
                   href="/billing"
                   className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition text-center block"

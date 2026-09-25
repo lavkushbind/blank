@@ -1,58 +1,54 @@
-﻿"use client";
+"use client";
 
-import React from "react";
-import { Award, Sparkles, Lock, Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { Award, Check, Coins, Loader2, Lock } from "lucide-react";
+import { auth } from "@/lib/firebase/client";
+
+type Badge = { id: string; title: string; description: string; cost: number; unlocked: boolean };
 
 export default function StudentBadgesPage() {
-  const badges = [
-    { title: "Math Titan", desc: "Maintained 90%+ in algebra tests", cost: 300, unlocked: true },
-    { title: "7-Day Flame", desc: "Attended 7 classes consecutively", cost: 200, unlocked: true },
-    { title: "Speed Solver", desc: "Answered live polls in under 10 seconds", cost: 500, unlocked: false },
-    { title: "STEM Wizard", desc: "Completed all science lab simulations", cost: 600, unlocked: false },
-  ];
+  const [user, setUser] = useState<User | null>(null);
+  const [badges, setBadges] = useState<Badge[]>([]);
+  const [coins, setCoins] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
 
-  return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-      <div className="flex justify-between items-end border-b border-slate-200 pb-6">
-        <div>
-          <h1 className="text-2xl font-black text-slate-950">Achievements & Badge Shop</h1>
-          <p className="text-xs text-slate-500">Unlock titles with your earned Quiz Coins. Coins also reduce monthly renewal fees!</p>
-        </div>
-        <div className="bg-indigo-50 border border-indigo-200 px-4 py-2 rounded-2xl text-indigo-900 font-black text-sm">
-          🪙 Available: 450 Coins
-        </div>
-      </div>
+  useEffect(() => onAuthStateChanged(auth, (current) => setUser(current)), []);
+  useEffect(() => {
+    if (!user) { setLoading(false); return; }
+    let active = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const response = await fetch("/api/student-badges", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.message || "Badges could not be loaded.");
+        if (active) { setCoins(result.coins); setBadges(result.badges); }
+      } catch (error) { if (active) setMessage(error instanceof Error ? error.message : "Badges could not be loaded."); }
+      finally { if (active) setLoading(false); }
+    })();
+    return () => { active = false; };
+  }, [user]);
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {badges.map((b, i) => (
-          <div key={i} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold ${
-                b.unlocked ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-400"
-              }`}>
-                <Award size={24} />
-              </div>
-              <div>
-                <h4 className="text-sm font-black text-slate-900">{b.title}</h4>
-                <p className="text-xs text-slate-500">{b.desc}</p>
-                <span className="text-[11px] font-mono font-bold text-amber-600">Cost: {b.cost} Coins</span>
-              </div>
-            </div>
+  async function unlock(badge: Badge) {
+    if (!user || busy) return;
+    setBusy(badge.id); setMessage("");
+    try {
+      const response = await fetch("/api/student-badges", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ badgeId: badge.id }) });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || "Badge could not be unlocked.");
+      setCoins(result.coins);
+      setBadges((items) => items.map((item) => item.id === badge.id ? { ...item, unlocked: true } : item));
+      setMessage(result.alreadyUnlocked ? "This badge is already in your collection." : `${badge.title} added to your collection.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Badge could not be unlocked."); }
+    finally { setBusy(""); }
+  }
 
-            <div>
-              {b.unlocked ? (
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
-                  <Check size={13} /> Unlocked
-                </span>
-              ) : (
-                <button className="text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1">
-                  <Lock size={12} /> Unlock
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  return <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+    <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-6"><div><p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">Student rewards</p><h1 className="mt-2 text-2xl font-black text-slate-950">Badge collection</h1><p className="mt-1 text-sm text-slate-600">Use earned quiz coins to add badges to your profile.</p></div><div className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 font-bold text-amber-900"><Coins size={18}/> {coins} coins</div></div>
+    {message && <p role="status" className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm font-semibold text-blue-800">{message}</p>}
+    {loading ? <div className="py-16 text-center text-slate-500"><Loader2 className="mx-auto animate-spin"/><p className="mt-3 text-sm">Loading your badge collection…</p></div> : !user ? <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Sign in with your student account to see your coins and badges.</div> : <div className="mt-6 grid gap-4 sm:grid-cols-2">{badges.map((badge) => <article key={badge.id} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${badge.unlocked ? "bg-emerald-50 text-emerald-600" : "bg-indigo-50 text-indigo-600"}`}><Award size={24}/></div><div><h2 className="font-black text-slate-900">{badge.title}</h2><p className="mt-1 text-xs text-slate-500">{badge.description}</p><p className="mt-2 text-xs font-bold text-amber-700">{badge.cost} coins</p></div></div>{badge.unlocked ? <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"><Check size={14}/> Owned</span> : <button disabled={!!busy || coins < badge.cost} onClick={() => void unlock(badge)} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">{busy === badge.id ? <Loader2 size={13} className="animate-spin"/> : <Lock size={13}/>} Unlock</button>}</article>)}</div>}
+  </main>;
 }

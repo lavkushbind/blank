@@ -1,0 +1,971 @@
+"use client";
+
+import {
+  FormEvent,
+  useEffect,
+  useState,
+} from "react";
+
+import { useRouter } from "next/navigation";
+
+import {
+  GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  updateProfile,
+} from "firebase/auth";
+
+import {
+  arrayUnion,
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore";
+
+import { auth, db } from "@/lib/firebase/client";
+import { BrandLogo } from "@/components/BrandLogo";
+
+export default function StudentAuthPage() {
+  const router = useRouter();
+
+  const [isLogin, setIsLogin] = useState(true);
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  const [error, setError] = useState("");
+
+  /* ============================================================
+     CREATE / UPDATE STUDENT PROFILE
+     ============================================================ */
+
+  const createStudentProfile = async (
+    uid: string,
+    studentName: string,
+    studentEmail: string
+  ) => {
+    if (!uid) {
+      throw new Error("Missing Firebase UID.");
+    }
+
+    const userRef = doc(db, "users", uid);
+    const studentRef = doc(db, "students", uid);
+
+    const [userSnap, studentSnap, teacherSnap] =
+      await Promise.all([
+        getDoc(userRef),
+        getDoc(studentRef),
+        getDoc(doc(db, "teachers", uid)),
+      ]);
+
+    /*
+     * IMPORTANT:
+     *
+     * We NEVER replace:
+     *
+     * role: "TEACHER"
+     *
+     * with:
+     *
+     * role: "STUDENT"
+     *
+     * anymore.
+     *
+     * roles array is now the source of truth.
+     */
+
+    const existingUser = userSnap.exists()
+      ? userSnap.data()
+      : null;
+
+    const existingRoles = Array.isArray(
+      existingUser?.roles
+    )
+      ? existingUser.roles
+      : [];
+
+    /*
+     * If this account is already a teacher,
+     * keep teacher capability.
+     */
+    const roles = Array.from(
+      new Set([
+        ...existingRoles,
+        "STUDENT",
+        ...(teacherSnap.exists()
+          ? ["TEACHER"]
+          : []),
+      ])
+    );
+
+    /*
+     * Legacy role support.
+     *
+     * If teacher profile exists, keep TEACHER
+     * as legacy primary role.
+     *
+     * Otherwise STUDENT is fine.
+     */
+    const legacyRole = teacherSnap.exists()
+      ? "TEACHER"
+      : existingUser?.role || "STUDENT";
+
+    /*
+     * users/{uid}
+     */
+    await setDoc(
+      userRef,
+      {
+        uid,
+
+        name:
+          studentName ||
+          existingUser?.name ||
+          "Student",
+
+        email:
+          studentEmail ||
+          existingUser?.email ||
+          null,
+
+        roles,
+
+        role: legacyRole,
+
+        updatedAt: serverTimestamp(),
+
+        ...(userSnap.exists()
+          ? {}
+          : {
+              createdAt: serverTimestamp(),
+            }),
+      },
+      {
+        merge: true,
+      }
+    );
+
+    /*
+     * students/{uid}
+     *
+     * Only create if missing.
+     * Existing student data is NOT destroyed.
+     */
+    if (!studentSnap.exists()) {
+      await setDoc(studentRef, {
+        uid,
+
+        name:
+          studentName ||
+          "Student",
+
+        email:
+          studentEmail ||
+          null,
+
+        role: "STUDENT",
+
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      /*
+       * Update only basic identity information.
+       * Do not destroy student data.
+       */
+      await setDoc(
+        studentRef,
+        {
+          name:
+            studentName ||
+            studentSnap.data()?.name ||
+            "Student",
+
+          email:
+            studentEmail ||
+            studentSnap.data()?.email ||
+            null,
+
+          updatedAt: serverTimestamp(),
+        },
+        {
+          merge: true,
+        }
+      );
+    }
+  };
+
+  /* ============================================================
+     CREATE SESSION COOKIE
+     ============================================================ */
+
+  const createSession = async (
+    preferredRole: "STUDENT" | "TEACHER"
+  ) => {
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      throw new Error(
+        "Authentication session not found."
+      );
+    }
+
+    const token =
+      await currentUser.getIdToken(true);
+
+    document.cookie =
+      `__session=${token}; path=/; max-age=86400; SameSite=Lax`;
+
+    document.cookie =
+      `user_role=${preferredRole}; path=/; max-age=86400; SameSite=Lax`;
+  };
+
+  /* ============================================================
+     CHECK TEACHER FIRST
+     ============================================================ */
+
+  const getTeacherProfile = async (
+    uid: string
+  ) => {
+    const teacherSnap = await getDoc(
+      doc(db, "teachers", uid)
+    );
+
+    if (!teacherSnap.exists()) {
+      return null;
+    }
+
+    return teacherSnap.data();
+  };
+
+  /* ============================================================
+     ROUTE USER
+     
+     IMPORTANT:
+     Teacher gets priority if teacher profile exists.
+     ============================================================ */
+
+  const routeAfterAuth = async (
+    uid: string
+  ) => {
+    const teacherSnap = await getDoc(
+      doc(db, "teachers", uid)
+    );
+
+    /*
+     * Teacher account exists.
+     *
+     * Never send teacher to student portal.
+     */
+    if (teacherSnap.exists()) {
+      const teacher =
+        teacherSnap.data();
+
+      const applicationStatus =
+        teacher.applicationStatus;
+
+      const kycStatus =
+        teacher.kycStatus;
+
+      /*
+       * Teacher application incomplete.
+       */
+      if (
+        !applicationStatus ||
+        applicationStatus ===
+          "INCOMPLETE" ||
+        applicationStatus ===
+          "PENDING"
+      ) {
+        await createSession("TEACHER");
+
+        router.replace(
+          "/onboarding/teacher"
+        );
+
+        return;
+      }
+
+      /*
+       * Application exists but approval/KYC
+       * is not complete.
+       */
+      if (
+        applicationStatus !==
+          "APPROVED" ||
+        kycStatus !== "VERIFIED"
+      ) {
+        await createSession("TEACHER");
+
+        router.replace(
+          "/onboarding/teacher"
+        );
+
+        return;
+      }
+
+      /*
+       * Fully approved teacher.
+       */
+      await createSession("TEACHER");
+
+      router.replace("/dashboard");
+
+      return;
+    }
+
+    /*
+     * No teacher profile.
+     *
+     * Normal student flow.
+     */
+    await createSession("STUDENT");
+
+    router.replace("/hub");
+  };
+
+  /* ============================================================
+     PERSISTENT FIREBASE SESSION
+     ============================================================ */
+
+  useEffect(() => {
+    const unsubscribe =
+      onAuthStateChanged(
+        auth,
+        async (user) => {
+          try {
+            if (!user) {
+              setCheckingSession(false);
+              return;
+            }
+
+            /*
+             * Existing Firebase session found.
+             *
+             * Do not show signup/login again.
+             */
+            await routeAfterAuth(user.uid);
+          } catch (err) {
+            console.error(
+              "Existing session routing error:",
+              err
+            );
+
+            setCheckingSession(false);
+          }
+        }
+      );
+
+    return unsubscribe;
+  }, []);
+
+  /* ============================================================
+     GOOGLE LOGIN
+     ============================================================ */
+
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    setError("");
+
+    try {
+      const provider =
+        new GoogleAuthProvider();
+
+      provider.setCustomParameters({
+        prompt: "select_account",
+      });
+
+      const result =
+        await signInWithPopup(
+          auth,
+          provider
+        );
+
+      const user = result.user;
+
+      const studentName =
+        user.displayName?.trim() ||
+        user.email?.split("@")[0] ||
+        "Student";
+
+      /*
+       * Create student capability.
+       *
+       * This does NOT remove teacher capability.
+       */
+      await createStudentProfile(
+        user.uid,
+        studentName,
+        user.email || ""
+      );
+
+      /*
+       * Teacher gets priority.
+       */
+      await routeAfterAuth(user.uid);
+    } catch (err: any) {
+      console.error(
+        "Google login error:",
+        err
+      );
+
+      switch (err?.code) {
+        case "auth/popup-closed-by-user":
+          setError(
+            "Google sign-in was cancelled."
+          );
+          break;
+
+        case "auth/popup-blocked":
+          setError(
+            "Please allow popups in your browser."
+          );
+          break;
+
+        case "auth/network-request-failed":
+          setError(
+            "Network error. Please try again."
+          );
+          break;
+
+        case "auth/account-exists-with-different-credential":
+          setError(
+            "An account already exists with this email. Please use email login."
+          );
+          break;
+
+        default:
+          setError(
+            "Google sign-in failed. Please try again."
+          );
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  /* ============================================================
+     EMAIL LOGIN / SIGNUP
+     ============================================================ */
+
+  const handleEmailAuth = async (
+    e: FormEvent
+  ) => {
+    e.preventDefault();
+
+    setError("");
+
+    const cleanEmail =
+      email.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      setError(
+        "Please enter your email."
+      );
+      return;
+    }
+
+    if (!password) {
+      setError(
+        "Please enter your password."
+      );
+      return;
+    }
+
+    if (!isLogin && !name.trim()) {
+      setError(
+        "Please enter your name."
+      );
+      return;
+    }
+
+    if (password.length < 6) {
+      setError(
+        "Password must contain at least 6 characters."
+      );
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      /* ========================================================
+         LOGIN
+         ======================================================== */
+
+      if (isLogin) {
+        const credential =
+          await signInWithEmailAndPassword(
+            auth,
+            cleanEmail,
+            password
+          );
+
+        const user = credential.user;
+
+        /*
+         * IMPORTANT:
+         *
+         * We do NOT reject teacher accounts.
+         *
+         * We check teacher profile first.
+         */
+        await createStudentProfile(
+          user.uid,
+          user.displayName?.trim() ||
+            user.email?.split("@")[0] ||
+            "Student",
+          user.email ||
+            cleanEmail
+        );
+
+        /*
+         * Teacher gets priority.
+         */
+        await routeAfterAuth(
+          user.uid
+        );
+
+        return;
+      }
+
+      /* ========================================================
+         SIGNUP
+         ======================================================== */
+
+      const credential =
+        await createUserWithEmailAndPassword(
+          auth,
+          cleanEmail,
+          password
+        );
+
+      const user = credential.user;
+
+      await updateProfile(user, {
+        displayName: name.trim(),
+      });
+
+      /*
+       * New student account.
+       */
+      await createStudentProfile(
+        user.uid,
+        name.trim(),
+        user.email || cleanEmail
+      );
+
+      await createSession("STUDENT");
+
+      router.replace("/hub");
+    } catch (err: any) {
+      console.error(
+        "Email auth error:",
+        err
+      );
+
+      switch (err?.code) {
+        case "auth/invalid-credential":
+        case "auth/wrong-password":
+          setError(
+            "Incorrect email or password."
+          );
+          break;
+
+        case "auth/user-not-found":
+          setError(
+            "No account found with this email."
+          );
+          break;
+
+        case "auth/email-already-in-use":
+          setError(
+            "An account already exists with this email. Please sign in."
+          );
+          break;
+
+        case "auth/invalid-email":
+          setError(
+            "Please enter a valid email address."
+          );
+          break;
+
+        case "auth/weak-password":
+          setError(
+            "Password must contain at least 6 characters."
+          );
+          break;
+
+        case "auth/too-many-requests":
+          setError(
+            "Too many attempts. Please try again later."
+          );
+          break;
+
+        default:
+          setError(
+            "Something went wrong. Please try again."
+          );
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ============================================================
+     SWITCH LOGIN / SIGNUP
+     ============================================================ */
+
+  const switchMode = () => {
+    setError("");
+    setName("");
+    setPassword("");
+
+    setIsLogin(
+      (value) => !value
+    );
+  };
+
+  /* ============================================================
+     SESSION CHECK UI
+     ============================================================ */
+
+  if (checkingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#F8FAFC]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-[14px] bg-[#0B1020] text-sm font-bold text-white">
+            <BrandLogo className="h-full w-full rounded-[inherit] object-cover" />
+          </div>
+
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-[#2563EB]" />
+
+          <p className="text-sm font-medium text-slate-500">
+            Restoring your session...
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  /* ============================================================
+     UI
+     ============================================================ */
+
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-[#F8FAFC] text-[#0B1020]">
+
+      <div className="pointer-events-none absolute inset-0">
+        <div
+          className="absolute inset-0 opacity-[0.55]"
+          style={{
+            backgroundImage:
+              "linear-gradient(#E7ECF3 1px, transparent 1px), linear-gradient(90deg, #E7ECF3 1px, transparent 1px)",
+            backgroundSize:
+              "44px 44px",
+          }}
+        />
+
+        <div className="absolute left-[8%] top-[15%] h-[280px] w-[280px] rounded-full bg-blue-200/25 blur-[100px]" />
+
+        <div className="absolute bottom-[5%] right-[8%] h-[300px] w-[300px] rounded-full bg-indigo-200/20 blur-[110px]" />
+      </div>
+
+      <header className="relative z-10 flex items-center justify-between px-6 py-5 sm:px-10 lg:px-14">
+
+        <button
+          onClick={() =>
+            router.push("/")
+          }
+          className="group flex items-center gap-3"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-[12px] bg-[#0B1020] text-sm font-bold text-white shadow-[0_8px_25px_rgba(11,16,32,.18)]">
+            <BrandLogo className="h-full w-full rounded-[inherit] object-cover" />
+          </div>
+
+          <div className="text-left">
+            <div className="text-[19px] font-bold tracking-[-0.03em]">
+              BlankLearn
+            </div>
+
+            <div className="text-[8px] font-bold tracking-[0.25em] text-[#2563EB]">
+              LIVE LEARNING
+            </div>
+          </div>
+        </button>
+
+        <button
+          onClick={() =>
+            router.push("/")
+          }
+          className="hidden rounded-xl px-4 py-2 text-sm font-semibold text-[#52627A] transition hover:bg-white hover:text-[#0B1020] sm:block"
+        >
+          Back to home
+        </button>
+
+      </header>
+
+      <section className="relative z-10 flex min-h-[calc(100vh-84px)] items-center justify-center px-5 pb-12 pt-4 sm:px-8">
+
+        <div className="w-full max-w-[470px]">
+
+          <div className="mb-5 text-center">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#DCE5F1] bg-white px-4 py-2 text-xs font-semibold text-[#52627A] shadow-sm">
+              <span className="h-2 w-2 rounded-full bg-[#10B981]" />
+
+              {isLogin
+                ? "Welcome back to BlankLearn"
+                : "Start learning with BlankLearn"}
+            </span>
+          </div>
+
+          <div className="rounded-[28px] border border-[#E3E8F0] bg-white p-7 shadow-[0_24px_70px_rgba(15,23,42,.09)] sm:p-10">
+
+            <div className="text-center">
+
+              <h1 className="text-[32px] font-bold tracking-[-0.045em] sm:text-[36px]">
+                {isLogin
+                  ? "Welcome back."
+                  : "Create your account."}
+              </h1>
+
+              <p className="mx-auto mt-3 max-w-[350px] text-[15px] leading-6 text-[#64748B]">
+                {isLogin
+                  ? "Sign in to continue your personalized learning journey."
+                  : "Create your account and discover learning that feels personal."}
+              </p>
+
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={
+                loading ||
+                googleLoading
+              }
+              className="group relative mt-8 flex h-[52px] w-full items-center justify-center gap-3 overflow-hidden rounded-[14px] border border-[#DDE3EC] bg-white text-[15px] font-semibold text-[#172033] transition-all duration-300 hover:-translate-y-[1px] hover:border-[#C7D0DD] hover:shadow-[0_10px_30px_rgba(15,23,42,.08)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {googleLoading ? (
+                <span className="relative h-5 w-5 animate-spin rounded-full border-2 border-[#D7DDE7] border-t-[#0B1020]" />
+              ) : (
+                <GoogleIcon />
+              )}
+
+              <span>
+                {googleLoading
+                  ? "Connecting..."
+                  : "Continue with Google"}
+              </span>
+            </button>
+
+            <div className="my-7 flex items-center gap-4">
+              <div className="h-px flex-1 bg-[#E8ECF2]" />
+
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+                OR
+              </span>
+
+              <div className="h-px flex-1 bg-[#E8ECF2]" />
+            </div>
+
+            {error && (
+              <div className="mb-5 rounded-[13px] border border-[#FECACA] bg-[#FEF2F2] px-4 py-3 text-sm font-medium text-[#DC2626]">
+                {error}
+              </div>
+            )}
+
+            <form
+              onSubmit={handleEmailAuth}
+              className="space-y-5"
+            >
+
+              {!isLogin && (
+                <div>
+                  <label className="mb-2 block text-[13px] font-bold text-[#263248]">
+                    Full name
+                  </label>
+
+                  <input
+                    value={name}
+                    onChange={(e) =>
+                      setName(e.target.value)
+                    }
+                    placeholder="Enter your full name"
+                    autoComplete="name"
+                    className="h-[52px] w-full rounded-[14px] border border-[#DDE3EC] bg-[#F8FAFC] px-4 text-[15px] outline-none transition-all placeholder:text-[#9AA5B5] focus:border-[#2563EB] focus:bg-white focus:ring-4 focus:ring-[#2563EB]/10"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="mb-2 block text-[13px] font-bold text-[#263248]">
+                  Email address
+                </label>
+
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) =>
+                    setEmail(e.target.value)
+                  }
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  className="h-[52px] w-full rounded-[14px] border border-[#DDE3EC] bg-[#F8FAFC] px-4 text-[15px] outline-none transition-all placeholder:text-[#9AA5B5] focus:border-[#2563EB] focus:bg-white focus:ring-4 focus:ring-[#2563EB]/10"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-[13px] font-bold text-[#263248]">
+                  Password
+                </label>
+
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) =>
+                    setPassword(e.target.value)
+                  }
+                  placeholder="Enter your password"
+                  autoComplete={
+                    isLogin
+                      ? "current-password"
+                      : "new-password"
+                  }
+                  className="h-[52px] w-full rounded-[14px] border border-[#DDE3EC] bg-[#F8FAFC] px-4 text-[15px] outline-none transition-all placeholder:text-[#9AA5B5] focus:border-[#2563EB] focus:bg-white focus:ring-4 focus:ring-[#2563EB]/10"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={
+                  loading ||
+                  googleLoading
+                }
+                className="flex h-[53px] w-full items-center justify-center rounded-[14px] bg-[#2563EB] text-[15px] font-bold text-white shadow-[0_12px_25px_rgba(37,99,235,.20)] transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? (
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                ) : (
+                  <>
+                    {isLogin
+                      ? "Sign in"
+                      : "Create account"}
+
+                    <span className="ml-2 text-lg">
+                      →
+                    </span>
+                  </>
+                )}
+              </button>
+
+            </form>
+
+            <div className="mt-7 text-center text-[14px] text-[#64748B]">
+
+              {isLogin
+                ? "Don't have an account?"
+                : "Already have an account?"}
+
+              <button
+                type="button"
+                onClick={switchMode}
+                className="ml-1 font-bold text-[#0B1020] hover:text-[#2563EB]"
+              >
+                {isLogin
+                  ? "Create account"
+                  : "Sign in"}
+              </button>
+
+            </div>
+
+            <div className="mt-7 border-t border-[#EEF1F5] pt-6 text-center">
+
+              <p className="text-xs text-[#94A3B8]">
+                Want to teach on BlankLearn?
+              </p>
+
+              <button
+                onClick={() =>
+                  router.push(
+                    "/teacher-auth"
+                  )
+                }
+                className="mt-1 text-[14px] font-bold text-[#0B1020] transition hover:text-[#2563EB]"
+              >
+                Apply as a teacher →
+              </button>
+
+            </div>
+
+          </div>
+
+          <p className="mt-5 text-center text-[11px] leading-5 text-[#94A3B8]">
+            By continuing, you agree to BlankLearn's{" "}
+            <button
+              onClick={() =>
+                router.push("/terms")
+              }
+              className="font-semibold underline"
+            >
+              Terms
+            </button>{" "}
+            and{" "}
+            <button
+              onClick={() =>
+                router.push("/privacy")
+              }
+              className="font-semibold underline"
+            >
+              Privacy Policy
+            </button>
+            .
+          </p>
+
+        </div>
+      </section>
+    </main>
+  );
+}
+
+/* ================================================================
+   GOOGLE ICON
+   ================================================================ */
+
+function GoogleIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M21.8 12.23c0-.79-.07-1.55-.22-2.28H12v4.31h5.49a4.7 4.7 0 0 1-2.04 3.08v2.55h3.3c1.93-1.78 3.05-4.4 3.05-7.66Z"
+        fill="#4285F4"
+      />
+
+      <path
+        d="M12 22c2.76 0 5.08-.91 6.77-2.46l-3.3-2.55c-.91.61-2.07.97-3.47.97-2.67 0-4.94-1.8-5.75-4.23H2.84v2.63A10.23 10.23 0 0 0 12 22Z"
+        fill="#34A853"
+      />
+
+      <path
+        d="M6.25 13.73A6.14 6.14 0 0 1 5.93 12c0-.6.11-1.19.32-1.73V7.64H2.84A10.01 10.01 0 0 0 1.75 12c0 1.61.39 3.13 1.09 4.36l3.41-2.63Z"
+        fill="#FBBC05"
+      />
+
+      <path
+        d="M12 6.04c1.5 0 2.84.52 3.9 1.54l2.92-2.92C17.07 2.98 14.76 2 12 2a10.23 10.23 0 0 0-9.16 5.64l3.41 2.63 3.41 2.63C7.06 7.84 9.33 6.04 12 6.04Z"
+        fill="#EA4335"
+      />
+    </svg>
+  );
+}

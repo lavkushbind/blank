@@ -20,8 +20,8 @@ export function RaiseHandQueue({ participantName, isTeacher = false }: { partici
           setQueue((prev) => prev.filter((name) => name !== data.studentName));
           if (data.studentName === participantName) setHandRaised(false);
         }
-      } catch (err) {
-        console.error("Raise hand sync error", err);
+      } catch {
+        // Ignore unrelated or non-JSON room packets.
       }
     };
     room.on("dataReceived", handleData);

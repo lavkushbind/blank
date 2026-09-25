@@ -1,143 +1,156 @@
-﻿"use client";
+"use client";
+import { trackConversion } from "@/lib/marketing/conversions";
+import { toPaise } from "@/lib/payments/money";
 
-import React, { useState } from "react";
-import { Sparkles, ShieldCheck, CheckCircle2, ArrowRight } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { usePlatformSettings } from "@/lib/platform/client";
+import Link from "next/link";
+import Script from "next/script";
+import { useRouter } from "next/navigation";
+import { ArrowRight, CheckCircle2, ShieldCheck } from "lucide-react";
+import { onAuthStateChanged } from "firebase/auth";
+
+import { auth } from "@/lib/firebase/client";
+
+type PlanType = "M1_D3" | "M1_D6" | "M3_D3" | "M3_D6" | "M6_D3" | "M6_D6";
+type RazorpayOrder = { success?: boolean; message?: string; orderId?: string; amount?: number; currency?: string; keyId?: string };
+type RazorpayPayment = { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string };
+declare global {
+  interface Window {
+    Razorpay: new (options: any) => { open: () => void };
+  }
+}
+
+const plans: { id: PlanType; title: string; amount: number; regularAmount: number; detail: string }[] = [
+  { id: "M1_D3", title: "1 Month · 3 days/week", amount: 1500, regularAmount: 1500, detail: "Monthly · 3 live classes each week" },
+  { id: "M1_D6", title: "1 Month · 6 days/week", amount: 2500, regularAmount: 2500, detail: "Monthly · 6 live classes each week" },
+  { id: "M3_D3", title: "3 Months · 3 days/week", amount: 4200, regularAmount: 4500, detail: "Demo offer · save ₹300" },
+  { id: "M3_D6", title: "3 Months · 6 days/week", amount: 7000, regularAmount: 7500, detail: "Demo offer · save ₹500" },
+  { id: "M6_D3", title: "6 Months · 3 days/week", amount: 8100, regularAmount: 9000, detail: "Demo offer · save ₹900" },
+  { id: "M6_D6", title: "6 Months · 6 days/week", amount: 13500, regularAmount: 15000, detail: "Demo offer · save ₹1,500" },
+];
 
 export default function ParentBillingPage() {
-  const [selectedPlan, setSelectedPlan] = useState<"MONTHLY" | "QUARTERLY">("MONTHLY");
-  const [applyCoins, setApplyCoins] = useState(true);
+  const router = useRouter();
+  const platform = usePlatformSettings();
+  const plans = Object.entries(platform.plans).map(([id,p]) => ({id:id as PlanType,title:`${p.months} months / ${p.classesPerWeek} days per week`,amount:platform.offersEnabled ? p.offer : p.regular,regularAmount:p.regular,detail:`${p.classesPerWeek} live class days per week. Total for ${p.months} months.`}));
+  const [bookingId, setBookingId] = useState("");
+  const [plan, setPlan] = useState<PlanType>("M1_D3");
+  const [offerActive, setOfferActive] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [complete, setComplete] = useState(false);
 
-  const coinBalance = 450; // Aarav earned 450 coins
-  const basePrice = selectedPlan === "MONTHLY" ? 3499 : 8999;
-  const discount = applyCoins ? coinBalance : 0;
-  const finalPrice = basePrice - discount;
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setBookingId(params.get("bookingId") || "");
+    const offerEndsAt = Number(params.get("offerEndsAt") || 0);
+    setOfferActive(offerEndsAt > Date.now());
+    const requestedPlan = params.get("plan") as PlanType | null;
+    if (requestedPlan && plans.some((item) => item.id === requestedPlan)) setPlan(requestedPlan);
+    return onAuthStateChanged(auth, (user) => {
+      setSignedIn(Boolean(user));
+      setAuthReady(true);
+    });
+  }, []);
 
-  const handlePayment = async () => {
+  const startPayment = async () => {
+    const user = auth.currentUser;
+    if (!bookingId) return setMessage("Open this page from your trial class in the student hub.");
+    if (!user) return setMessage("Sign in to the student account that owns this trial class.");
+    if (!window.Razorpay) return setMessage("Payment gateway is loading. Please try again in a moment.");
+    setBusy(true);
+    setMessage("");
     try {
-      const res = await fetch("/api/razorpay/order", {
+      const token = await user.getIdToken();
+      const orderResponse = await fetch("/api/razorpay/order", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          baseAmount: basePrice,
-          coinDiscount: discount,
-          planType: selectedPlan,
-          childId: "child_aarav_01",
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ bookingId, purchaseType: "COURSE_PURCHASE", planType: plan }),
       });
-      const data = await res.json();
-      alert(`Razorpay Checkout Triggered!\nOrder ID: ${data.order.id}\nDiscount Applied: ₹${discount}\nFinal Payable: ₹${data.finalPayable}`);
-    } catch (err) {
-      console.error("Order initiation error", err);
+      const order = (await orderResponse.json()) as RazorpayOrder;
+      if (!orderResponse.ok || !order.success || !order.orderId || !order.amount || !order.keyId) {
+        throw new Error(order.message || "Could not create a payment order.");
+      }
+      trackConversion("begin_checkout", {id:order.orderId,value:order.amount,product:plan});
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        amount: toPaise(order.amount),
+        currency: order.currency || "INR",
+        name: "BlankLearn",
+        description: `${selected.title} course enrollment`,
+        order_id: order.orderId,
+        theme: { color: "#4f46e5" },
+        modal: { ondismiss: () => setBusy(false) },
+        handler: async (payment: RazorpayPayment) => {
+          try {
+            const verifyResponse = await fetch("/api/razorpay/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` },
+              body: JSON.stringify({
+                bookingId,
+                razorpayOrderId: payment.razorpay_order_id,
+                razorpayPaymentId: payment.razorpay_payment_id,
+                razorpaySignature: payment.razorpay_signature,
+              }),
+            });
+            const verification = await verifyResponse.json();
+            if (!verifyResponse.ok || !verification.success) throw new Error(verification.message || "Payment verification failed.");
+            trackConversion("purchase", {id:payment.razorpay_order_id,value:order.amount!,product:plan});
+            setComplete(true);
+            setMessage("Payment verified. Your existing trial class is now an active course enrollment.");
+            setTimeout(() => router.replace("/hub"), 1400);
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Payment verification failed. Contact support if your payment was deducted.");
+            setBusy(false);
+          }
+        },
+      });
+      checkout.open();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to start payment.");
+      setBusy(false);
     }
   };
 
+  const selected = plans.find((item) => item.id === plan)!;
+  const selectedAmount = offerActive ? selected.amount : selected.regularAmount;
+
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-      
-      {/* Scarcity Pod-Lock Warning */}
-      <div className="bg-amber-50 border border-amber-200 p-4 sm:p-5 rounded-3xl flex items-start gap-3 text-amber-900">
-        <span className="text-xl">⚠️</span>
-        <div className="space-y-0.5">
-          <h4 className="text-xs font-black">Seat Reservation Alert</h4>
-          <p className="text-xs text-amber-800 leading-relaxed">
-            Rahul Sir's Class 7 Evening 1:5 Pod has only 1 open seat for Aarav next month. Renew before Sunday to ensure the seat is not offered to waitlisted students.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-1">
-        <h1 className="text-2xl font-black text-slate-950">Renew 1:5 Pod Subscription</h1>
-        <p className="text-xs text-slate-500">Student: Aarav Sharma • CBSE Class 7 Mathematics & Science</p>
-      </div>
-
-      {/* Plan Tiers */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Monthly */}
-        <div
-          onClick={() => setSelectedPlan("MONTHLY")}
-          className={`p-6 rounded-3xl border-2 cursor-pointer transition ${
-            selectedPlan === "MONTHLY"
-              ? "border-indigo-600 bg-white shadow-md shadow-indigo-100"
-              : "border-slate-200 bg-white hover:border-slate-300"
-          }`}
-        >
-          <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded">
-            1 Month Pod
-          </span>
-          <h3 className="text-2xl font-black text-slate-950 mt-3">₹3,499</h3>
-          <p className="text-xs text-slate-500 mt-1">12 Live Sessions • 3 classes / week</p>
+    <>
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
+      <main className="mx-auto max-w-3xl space-y-6 px-4 py-10 sm:px-6">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[.15em] text-indigo-600">Course enrollment</p>
+          <h1 className="mt-2 text-3xl font-black text-slate-950">Continue your trial class</h1>
+          <p className="mt-2 text-sm text-slate-500">Choose a plan to activate the same batch and live classroom from your demo.</p>
         </div>
 
-        {/* Quarterly */}
-        <div
-          onClick={() => setSelectedPlan("QUARTERLY")}
-          className={`p-6 rounded-3xl border-2 cursor-pointer transition relative ${
-            selectedPlan === "QUARTERLY"
-              ? "border-indigo-600 bg-white shadow-md shadow-indigo-100"
-              : "border-slate-200 bg-white hover:border-slate-300"
-          }`}
-        >
-          <div className="absolute -top-2.5 right-6 bg-emerald-600 text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full">
-            Save 15%
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {plans.map((item) => (
+            <button key={item.id} type="button" onClick={() => setPlan(item.id)} className={`rounded-3xl border-2 p-6 text-left transition ${plan === item.id ? "border-indigo-600 bg-white shadow-lg shadow-indigo-100" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+              <span className="text-xs font-bold text-indigo-600">{item.title}</span>
+              <h2 className="mt-3 text-3xl font-black text-slate-950">₹{(offerActive ? item.amount : item.regularAmount).toLocaleString("en-IN")}</h2>
+              <p className="mt-2 text-xs text-slate-500">{offerActive ? item.detail : item.regularAmount > item.amount ? `Regular total · ₹${item.regularAmount.toLocaleString("en-IN")}` : item.detail}</p>
+            </button>
+          ))}
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-6">
+          <div className="flex items-center gap-3 text-slate-700">
+            {complete ? <CheckCircle2 className="text-emerald-600" /> : <ShieldCheck className="text-indigo-600" />}
+            <div><p className="font-black">Secure Razorpay checkout</p><p className="text-xs text-slate-500">₹{selectedAmount.toLocaleString("en-IN")} INR · verified before enrollment activation</p></div>
           </div>
-          <span className="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded">
-            3 Months (Quarterly)
-          </span>
-          <h3 className="text-2xl font-black text-slate-950 mt-3">₹8,999</h3>
-          <p className="text-xs text-slate-500 mt-1">36 Live Sessions • Full Syllabus Guarantee</p>
+          {message && <p role="status" className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{message}</p>}
+          <button type="button" disabled={busy || !authReady || !signedIn || complete} onClick={startPayment} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 py-4 text-sm font-black text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
+            {!authReady ? "Checking account…" : busy ? "Processing…" : complete ? "Enrollment active" : `Pay ₹${selectedAmount.toLocaleString("en-IN")}`} <ArrowRight size={16} />
+          </button>
+          {authReady && !signedIn && <p className="mt-3 text-center text-xs text-slate-500">Please <Link className="font-bold text-indigo-600" href={`/student-auth?redirect=${encodeURIComponent(`/billing?bookingId=${bookingId}&plan=${plan}`)}`}>sign in</Link> with the student account that owns this trial.</p>}
+          {!bookingId && <p className="mt-3 text-center text-xs text-amber-700">Choose “Continue with this class” from your trial card in the student hub.</p>}
         </div>
-      </div>
-
-      {/* Quiz Coins Flat Discount Toggle */}
-      <div className="bg-white border border-slate-200 p-5 rounded-3xl shadow-sm flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
-            <Sparkles size={20} />
-          </div>
-          <div>
-            <h4 className="text-xs font-black text-slate-900">Redeem Aarav's Quiz Coins</h4>
-            <p className="text-[11px] text-slate-500">450 coins earned from daily micro-quizzes = Flat ₹450 Off</p>
-          </div>
-        </div>
-
-        <input
-          type="checkbox"
-          checked={applyCoins}
-          onChange={(e) => setApplyCoins(e.target.checked)}
-          className="w-5 h-5 rounded cursor-pointer accent-indigo-600"
-        />
-      </div>
-
-      {/* Price Breakdown */}
-      <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm space-y-2.5 text-xs">
-        <div className="flex justify-between text-slate-500 font-medium">
-          <span>Base 1:5 Pod Subscription</span>
-          <span>₹{basePrice}</span>
-        </div>
-        {applyCoins && (
-          <div className="flex justify-between text-amber-700 font-mono font-bold">
-            <span>Student Quiz Coins Discount</span>
-            <span>-₹{coinBalance}</span>
-          </div>
-        )}
-        <div className="border-t border-slate-100 pt-3 flex justify-between items-center text-sm font-black text-slate-950">
-          <span>Total Payable</span>
-          <span className="text-2xl text-emerald-700 font-mono">₹{finalPrice}</span>
-        </div>
-      </div>
-
-      {/* Checkout Button */}
-      <button
-        onClick={handlePayment}
-        className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs sm:text-sm rounded-2xl shadow-md shadow-indigo-600/25 transition flex items-center justify-center gap-2"
-      >
-        Pay ₹{finalPrice} via Razorpay (UPI, GPay, Cards, NetBanking) <ArrowRight size={16} />
-      </button>
-
-      <div className="flex items-center justify-center gap-2 text-slate-400 text-xs">
-        <ShieldCheck size={14} /> 100% Encrypted & Secure Razorpay Payment Gateway
-      </div>
-
-    </div>
+      </main>
+    </>
   );
 }

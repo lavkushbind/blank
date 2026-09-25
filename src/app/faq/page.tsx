@@ -2,16 +2,17 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { BrandLogo } from "@/components/BrandLogo";
 
 export default function FAQKnowledgebasePage() {
   const [openIdx, setOpenIdx] = useState<number | null>(0);
 
   const faqs = [
-    { q: "What makes 1:5 micro-batches different from regular online classes?", a: "In standard 100-student webinars, students stay permanently muted with camera off. In BlankLearn, exactly 5 students attend with live video and microphones enabled, ensuring the teacher speaks to every child by name." },
-    { q: "Does the ML attention tracker record my child's camera video?", a: "No. Zero video is recorded or sent to any server. Google MediaPipe runs in-browser on the child's GPU to compute Eye Aspect Ratio (EAR) and head yaw. Only a mathematical focus score is shared with the parent." },
-    { q: "How do Quiz Coins work during fee renewal?", a: "Students take a 5-minute micro-quiz after every class. Each coin earned gives a flat ₹1 discount. If your child earns 450 coins, you get flat ₹450 deducted from your monthly fees during Razorpay checkout." },
-    { q: "Are BlankLearn mentors verified?", a: "Yes. Every mentor holds degrees from top institutions (IITs, DU, BITS), undergoes Aadhaar/KYC verification, and submits a 2-minute audited demo class before being assigned to pods." },
-    { q: "What if my child misses a live class?", a: "Full HD interactive recordings with chapter bookmarks are automatically saved to your child's Classroom Vault." },
+    { q: "What makes small group classes different?", a: "Classes support groups of up to five students, with live video, audio and classroom tools. Actual attendance depends on who joins the session." },
+    { q: "Does BlankLearn track a student's attention from their camera?", a: "No. Camera based attention tracking is currently unavailable. The classroom does not calculate or report attention scores." },
+    { q: "Can Quiz Coins be used toward fees?", a: "Students can earn coins from quizzes and use them to unlock profile badges. Fee discounts using coins are not currently available at checkout." },
+    { q: "Are BlankLearn mentors verified?", a: "Teacher profiles may require review before approval. Check the teacher profile and class details shown in your account for current verification status." },
+    { q: "What if my child misses a live class?", a: "Check the class Vault for teacher shared notes and learning materials. Class recordings are not currently available." },
   ];
 
   return (
@@ -19,7 +20,7 @@ export default function FAQKnowledgebasePage() {
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link href="/" className="font-black text-base text-slate-950">
-            BL BlankLearn FAQ
+            <BrandLogo className="mr-2 inline-block h-7 w-7 rounded-lg object-cover align-middle" /> BlankLearn FAQ
           </Link>
           <Link href="/" className="text-xs font-bold text-slate-600 hover:text-slate-950">Home</Link>
         </div>
