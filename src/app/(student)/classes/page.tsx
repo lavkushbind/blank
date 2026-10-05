@@ -1,4 +1,5 @@
 "use client";
+import { studentAccess } from "@/lib/classroom/studentAccess";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -316,10 +317,7 @@ function isCompletedStatus(
 function isLiveStatus(
   status?: SessionStatus
 ) {
-  return (
-    status === "LIVE" ||
-    status === "OPEN_FOR_JOIN"
-  );
+  return studentAccess({ status }).allowed;
 }
 
 function isUpcomingStatus(
@@ -427,9 +425,7 @@ function ClassCard({
   const live =
     session.status === "LIVE";
 
-  const canJoin =
-    session.status === "LIVE" ||
-    session.status === "OPEN_FOR_JOIN";
+  const canJoin = studentAccess(session).allowed;
 
   const teacherName =
     teacher?.name ||
@@ -941,12 +937,7 @@ export default function StudentClassesPage() {
               session.scheduledAt
             );
 
-          if (filter === "LIVE") {
-            return (
-              status === "LIVE" ||
-              status === "OPEN_FOR_JOIN"
-            );
-          }
+          if (filter === "LIVE") { return isLiveStatus(status); }
 
           if (
             filter === "COMPLETED"
@@ -963,10 +954,7 @@ export default function StudentClassesPage() {
               status === "SCHEDULED" ||
               status === "PREPARING"
             ) {
-              return (
-                !scheduledTime ||
-                scheduledTime >= now
-              );
+              return true;
             }
 
             return false;
@@ -1022,12 +1010,7 @@ export default function StudentClassesPage() {
               session.scheduledAt
             );
 
-          if (
-            !time ||
-            time >= now
-          ) {
-            upcoming += 1;
-          }
+          upcoming += 1;
         }
       }
 

@@ -45,6 +45,7 @@ export interface TeacherRecord {
 
   availableDays?: unknown[];
   availableSlots?: unknown[];
+  timeSlots?: unknown[];
 
   groupAvailable?: boolean;
   individualAvailable?: boolean;
@@ -224,6 +225,7 @@ function normalizeProgram(
   }
 
   if (
+    v === "COMBO" ||
     v === "ALL_SUBJECTS" ||
     v === "MATH_SCIENCE_ENGLISH" ||
     v === "MATH + SCIENCE + ENGLISH"
@@ -558,13 +560,8 @@ export function normalizeTeacher(
       );
 
   const availableSlots =
-    (raw.availableSlots ?? [])
-      .map(slot =>
-        normalizeSlot(
-          slot,
-          fallbackDays[0],
-        ),
-      )
+    [...(raw.availableSlots ?? []), ...(raw.timeSlots ?? [])]
+      .flatMap(slot => (fallbackDays.length ? fallbackDays : [undefined]).map(day => normalizeSlot(typeof slot === "string" ? { slotId: slot, startTime: slot } : slot, day)))
       .filter(
         (
           value,
@@ -766,7 +763,6 @@ export function findMatchingTeachers(
       );
 
     if (
-      !programDirect &&
       !subjectMatch
     ) {
       continue;
@@ -957,12 +953,12 @@ export function normalizeExistingBatchForRequest(
       : subjects.includes("ENGLISH")
         ? "ENGLISH_ONLY"
         : null;
-  const programId = normalizeProgram(raw.programId) ?? inferredProgram;
+  const programId = normalizeProgram(raw.programId ?? raw.planType) ?? inferredProgram;
   if (!programId) return null;
 
-  const capacity = Math.min(5, Math.max(1, Number(raw.capacity ?? 5)));
+  const capacity = Math.min(5, Math.max(1, Number(raw.capacity ?? raw.maxStudents ?? 5)));
   const studentIds = Array.isArray(raw.studentIds) ? raw.studentIds : [];
-  const enrolledCount = Number(raw.enrolledCount ?? studentIds.length);
+  const enrolledCount = Math.max(Number(raw.enrolledCount ?? 0), studentIds.length);
   const demoType = normalizeMode(raw.demoType) ?? (capacity === 1 ? "INDIVIDUAL" : "GROUP");
 
   return {

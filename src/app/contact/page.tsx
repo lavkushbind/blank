@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
@@ -16,7 +17,7 @@ export default function ContactPage() {
     const form = new FormData(event.currentTarget);
     try {
       const response = await fetch("/api/support/contact", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(form.entries())) });
-      const result = await response.json();
+      const result = await readApiResponse(response);
       if (!response.ok || !result.success) throw new Error(result.message || "Could not send your request.");
       setTicketId(result.ticketId || "received");
     } catch (cause) {

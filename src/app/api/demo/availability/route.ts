@@ -91,6 +91,7 @@ export async function POST(
         }),
       );
 
+    const sessionsSnapshot = await adminDb.collection("class_sessions").get();
     const regularBatchSnapshot = await adminDb
       .collection("batches")
       .get();
@@ -128,7 +129,7 @@ export async function POST(
           ))
           .filter((batch): batch is ExistingBatch => batch !== null);
 
-        const matches =
+        const candidates =
           findMatchingTeachers(
             {
               classNumber,
@@ -143,6 +144,11 @@ export async function POST(
             batches,
           );
 
+        const matches = candidates.filter(match => [0, 1, 2].every(offset => {
+          const occurrence = addDays(date, offset);
+          if (!findMatchingTeachers({ ...matchRequest, date: occurrence }, teachers.filter(teacher => teacher.id === match.teacher.id), []).length) return false;
+          return !sessionsSnapshot.docs.some(doc => { const session = doc.data(); return session.teacherId === match.teacher.id && !["ENDED", "COMPLETED", "CANCELLED"].includes(session.status) && String(session.date || "").slice(0, 10) === occurrence && (session.slotId === slot.id || session.startTime === slot.startTime) && session.batchId !== match.existingBatch?.id; });
+        }));
         if (
           matches.length === 0
         ) {
@@ -167,6 +173,7 @@ export async function POST(
           label:
             slot.label,
 
+          batches: matches.filter(match => match.existingBatch).map(match => ({ id: match.existingBatch!.id, teacherName: match.teacher.name, enrolledCount: match.existingBatch!.enrolledCount, capacity: match.existingBatch!.capacity })),
           availableTeachers:
             matches.length,
 

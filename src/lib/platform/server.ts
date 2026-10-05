@@ -18,5 +18,5 @@ export function apiError(error: unknown) {
 }
 export async function settings(): Promise<PlatformSettings> {
   const snapshot = await adminDb.collection("platform_settings").doc("public").get();
-  return { ...defaultSettings, freeDemo: process.env.NEXT_PUBLIC_DEMO_OFFER_ACTIVE === "true", ...snapshot.data(), plans: { ...defaultSettings.plans, ...snapshot.data()?.plans } };
+  return { ...defaultSettings, freeDemo: (process.env.DEMO_OFFER_ACTIVE ?? process.env.NEXT_PUBLIC_DEMO_OFFER_ACTIVE) === "true", ...snapshot.data(), plans: { ...defaultSettings.plans, ...snapshot.data()?.plans } };
 }

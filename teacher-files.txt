@@ -1,0 +1,199 @@
+﻿
+
+===== FILE: .\src\app\onboarding\teacher\page.tsx =====
+
+"use client";
+
+import React, { useState } from "react";
+import Link from "next/link";
+import { db } from "@/lib/firebase/client";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { CheckCircle2, ShieldCheck } from "lucide-react";
+
+export default function TeacherAccreditationWizard() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [education, setEducation] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [bio, setBio] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      // Write Real Teacher Application to Firestore
+      await addDoc(collection(db, "teachers"), {
+        name,
+        email,
+        phone,
+        education,
+        demoVideoUrl: videoUrl,
+        bio,
+        hourlyRate: 650,
+        kycStatus: "PENDING",
+        subjects: ["Mathematics", "Science"],
+        grades: ["Class 7", "Class 8", "Class 9"],
+        createdAt: serverTimestamp(),
+      });
+      setSubmitted(true);
+    } catch (err) {
+      console.error("Teacher application error:", err);
+      alert("Failed to submit application. Please check internet connection.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-slate-900">
+        <div className="max-w-md w-full bg-white border border-slate-200 p-8 rounded-3xl shadow-xl text-center space-y-4">
+          <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+            <CheckCircle2 size={28} />
+          </div>
+          <h2 className="text-xl font-black text-slate-950">Application Stored in Database!</h2>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Your profile is now in Firestore with status <strong>PENDING</strong>. Super-admin will audit your credentials on /kyc-approval.
+          </p>
+          <Link
+            href="/"
+            className="block w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm"
+          >
+            Return to Homepage â†’
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-xl mx-auto px-4 py-12 w-full">
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xl space-y-5">
+        <div>
+          <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Accreditation Desk</span>
+          <h1 className="text-2xl font-black text-slate-950 mt-1">Apply to Teach 1:5 Pods</h1>
+          <p className="text-xs text-slate-500">Real application saved directly to live database for admin verification.</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Rahul Sharma"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full text-xs font-semibold p-2.5 rounded-xl border border-slate-200"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Email</label>
+              <input
+                type="email"
+                required
+                placeholder="rahul@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full text-xs font-semibold p-2.5 rounded-xl border border-slate-200"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">WhatsApp Phone</label>
+              <input
+                type="tel"
+                required
+                placeholder="98210 XXXXX"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full text-xs font-semibold p-2.5 rounded-xl border border-slate-200"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Degree & University</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. B.Tech (IIT Delhi) or M.Sc (Delhi University)"
+              value={education}
+              onChange={(e) => setEducation(e.target.value)}
+              className="w-full text-xs font-semibold p-2.5 rounded-xl border border-slate-200"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">2-Min Demo Video Link (Google Drive / YouTube)</label>
+            <input
+              type="url"
+              required
+              placeholder="https://drive.google.com/..."
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              className="w-full text-xs font-semibold p-2.5 rounded-xl border border-slate-200"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Teaching Bio</label>
+            <textarea
+              rows={3}
+              required
+              placeholder="Brief teaching philosophy and experience..."
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              className="w-full text-xs font-semibold p-2.5 rounded-xl border border-slate-200"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-sm transition"
+          >
+            {loading ? "Writing to Firestore..." : "Submit Real Teacher Application â†’"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+
+===== FILE: .\src\types\teacher.ts =====
+
+
+
+===== FILE: .\src\lib\firebase\client.ts =====
+
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
+import { getDatabase } from "firebase/database";
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyDkAbUlYv7SeA08-JFxFbkHaF_tlpbRIMw",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "dark-6191f.firebaseapp.com",
+  databaseURL: "https://dark-6191f-default-rtdb.firebaseio.com",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "dark-6191f",
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "dark-6191f.appspot.com",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "730022278030",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:730022278030:web:e5a2754692f94dc073aadf",
+};
+
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+export const auth = getAuth(app);
+
+// EXACT SCREENSHOT FIX: Connect directly to database named "dark"
+export const db = getFirestore(app, "dark");
+
+export const storage = getStorage(app);
+export const realtimeDb = getDatabase(app);
+export default app;

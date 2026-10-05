@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
@@ -20,7 +21,7 @@ export default function StudentMessagesPage() {
     (async () => {
       try {
         const response = await fetch("/api/student-messages", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
-        const result = await response.json();
+        const result = await readApiResponse(response);
         if (!response.ok || !result.success) throw new Error(result.message || "Messages could not be loaded.");
         if (!cancelled) setConversations(result.conversations || []);
       } catch (cause) { if (!cancelled) setError(cause instanceof Error ? cause.message : "Messages could not be loaded."); }

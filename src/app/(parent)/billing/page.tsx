@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 import { trackConversion } from "@/lib/marketing/conversions";
 import { toPaise } from "@/lib/payments/money";
 
@@ -70,7 +71,7 @@ export default function ParentBillingPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ bookingId, purchaseType: "COURSE_PURCHASE", planType: plan }),
       });
-      const order = (await orderResponse.json()) as RazorpayOrder;
+      const order = (await readApiResponse(orderResponse)) as RazorpayOrder;
       if (!orderResponse.ok || !order.success || !order.orderId || !order.amount || !order.keyId) {
         throw new Error(order.message || "Could not create a payment order.");
       }
@@ -96,7 +97,7 @@ export default function ParentBillingPage() {
                 razorpaySignature: payment.razorpay_signature,
               }),
             });
-            const verification = await verifyResponse.json();
+            const verification = await readApiResponse(verifyResponse);
             if (!verifyResponse.ok || !verification.success) throw new Error(verification.message || "Payment verification failed.");
             trackConversion("purchase", {id:payment.razorpay_order_id,value:order.amount!,product:plan});
             setComplete(true);

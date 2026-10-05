@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import React, { useState, use, useEffect } from "react";
 import { auth } from "@/lib/firebase/client";
@@ -32,7 +33,7 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
     (async () => {
       try {
         const response = await fetch("/api/student-quiz", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
-        const result = await response.json();
+        const result = await readApiResponse(response);
         if (!response.ok || !result.success) throw new Error(result.message || "Quiz unavailable.");
         if (active && result.completed) { setAlreadyCompleted(true); setIsFinished(true); setScore(Number(result.result?.coinsAwarded) || 0); }
       } catch (error) { if (active) setSaveError(error instanceof Error ? error.message : "Quiz unavailable."); }
@@ -52,7 +53,7 @@ export default function StudentQuizPage({ params }: { params: Promise<{ quizId: 
       try {
         if (!user) throw new Error("Sign in again to save quiz coins.");
         const response = await fetch("/api/student-quiz", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ quizId: "daily-math", answers: submittedAnswers }) });
-        const result = await response.json();
+        const result = await readApiResponse(response);
         if (!response.ok || !result.success) throw new Error(result.message || "Quiz result could not be saved.");
         setScore(Number(result.coinsAwarded) || 0);
         setAlreadyCompleted(Boolean(result.completed));

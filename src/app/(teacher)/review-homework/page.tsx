@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
@@ -23,12 +24,12 @@ export default function TeacherHomeworkReviewPage() {
   useEffect(() => {
     if (!user) return;
     let active = true;
-    (async()=>{setLoading(true);setError("");try{const response=await fetch("/api/homework/submissions",{headers:{Authorization:`Bearer ${await user.getIdToken()}`},cache:"no-store"});const data=await response.json();if(!response.ok||!data.success)throw new Error(data.message||"Homework could not be loaded.");const rows:Submission[]=data.submissions||[];if(active){setSubmissions(rows);setSelectedId((current)=>rows.some(item=>item.id===current)?current:rows[0]?.id||"");}}catch(cause){if(active)setError(cause instanceof Error?cause.message:"Homework could not be loaded.");}finally{if(active)setLoading(false);}})();
+    (async()=>{setLoading(true);setError("");try{const response=await fetch("/api/homework/submissions",{headers:{Authorization:`Bearer ${await user.getIdToken()}`},cache:"no-store"});const data=await readApiResponse(response);if(!response.ok||!data.success)throw new Error(data.message||"Homework could not be loaded.");const rows:Submission[]=data.submissions||[];if(active){setSubmissions(rows);setSelectedId((current)=>rows.some(item=>item.id===current)?current:rows[0]?.id||"");}}catch(cause){if(active)setError(cause instanceof Error?cause.message:"Homework could not be loaded.");}finally{if(active)setLoading(false);}})();
     return()=>{active=false;};
   },[user]);
   useEffect(()=>{setMarks(selected?.marksObtained===undefined?"":String(selected.marksObtained));setFeedback(selected?.teacherFeedback||"");},[selectedId,selected?.marksObtained,selected?.teacherFeedback]);
 
-  async function grade(event:FormEvent){event.preventDefault();if(!user||!selected)return;setSaving(true);setError("");setSuccess("");try{const response=await fetch(`/api/homework/submissions/${encodeURIComponent(selected.id)}`,{method:"PATCH",headers:{"Content-Type":"application/json",Authorization:`Bearer ${await user.getIdToken()}`},body:JSON.stringify({marksObtained:marks,teacherFeedback:feedback})});const data=await response.json();if(!response.ok||!data.success)throw new Error(data.message||"Feedback could not be saved.");setSubmissions(current=>current.map(item=>item.id===selected.id?{...item,marksObtained:Number(marks),teacherFeedback:feedback,status:"GRADED"}:item));setSuccess("Score and feedback saved for this student.");}catch(cause){setError(cause instanceof Error?cause.message:"Feedback could not be saved.");}finally{setSaving(false);}}
+  async function grade(event:FormEvent){event.preventDefault();if(!user||!selected)return;setSaving(true);setError("");setSuccess("");try{const response=await fetch(`/api/homework/submissions/${encodeURIComponent(selected.id)}`,{method:"PATCH",headers:{"Content-Type":"application/json",Authorization:`Bearer ${await user.getIdToken()}`},body:JSON.stringify({marksObtained:marks,teacherFeedback:feedback})});const data=await readApiResponse(response);if(!response.ok||!data.success)throw new Error(data.message||"Feedback could not be saved.");setSubmissions(current=>current.map(item=>item.id===selected.id?{...item,marksObtained:Number(marks),teacherFeedback:feedback,status:"GRADED"}:item));setSuccess("Score and feedback saved for this student.");}catch(cause){setError(cause instanceof Error?cause.message:"Feedback could not be saved.");}finally{setSaving(false);}}
 
   return <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6"><p className="text-xs font-black uppercase tracking-[.18em] text-blue-700">Teaching workspace</p><h1 className="mt-2 text-3xl font-black text-slate-950">Homework review</h1><p className="mt-2 text-sm text-slate-600">Review work submitted by students in your assigned batches.</p>
     {error&&<p role="alert" className="mt-5 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}{success&&<p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{success}</p>}

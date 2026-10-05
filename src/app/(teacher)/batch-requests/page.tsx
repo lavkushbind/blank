@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
@@ -20,7 +21,7 @@ export default function TeacherBatchRequestsPage() {
     setLoading(true);
     try {
       const response = await fetch("/api/batch-requests", { headers: { Authorization: `Bearer ${await current.getIdToken()}` }, cache: "no-store" });
-      const result = await response.json();
+      const result = await readApiResponse(response);
       if (!response.ok || !result.success) throw new Error(result.message || "Requests could not be loaded.");
       setRows(result.requests || []); setMessage("");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Requests could not be loaded."); }
@@ -32,7 +33,7 @@ export default function TeacherBatchRequestsPage() {
     setWorking(row.id); setMessage("");
     try {
       const response = await fetch(`/api/batch-requests/${encodeURIComponent(row.id)}`, { method: "PATCH", headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
-      const result = await response.json();
+      const result = await readApiResponse(response);
       if (!response.ok || !result.success) throw new Error(result.message || "Could not take this request.");
       setRows((current) => current.filter((item) => item.id !== row.id));
       if (result.studentId) router.push(`/teacher-chat/${encodeURIComponent(result.studentId)}`);

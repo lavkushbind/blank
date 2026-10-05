@@ -4,6 +4,7 @@ import {
   Timestamp,
 } from "firebase-admin/firestore";
 
+import { findMatchingTeachers } from "@/lib/booking/teacherMatcher";
 import { adminDb } from "@/lib/firebase/admin";
 
 import type { BoardId } from "@/lib/config/boards";
@@ -12,6 +13,7 @@ import type { DemoProgramId } from "@/lib/config/demoPrograms";
 import type { TimeSlotId } from "@/lib/config/timeSlots";
 
 export interface AllocateDemoInput {
+  demoDates?: string[];
   studentId: string;
   parentId?: string;
   studentName: string;
@@ -178,6 +180,26 @@ export async function allocateDemoBooking(
       };
     }
 
+    const teacherSnap = await transaction.get(adminDb.collection("teachers").doc(input.teacherId));
+    const studentRef = adminDb.collection("students").doc(input.studentId);
+    const studentSnap = await transaction.get(studentRef);
+    if (studentSnap.data()?.enrollmentStatus === "REGULAR") throw new Error("STUDENT_ALREADY_REGULAR");
+    if (!teacherSnap.exists || !findMatchingTeachers(input, [{ ...teacherSnap.data(), id: input.teacherId }]).length) throw new Error("TEACHER_INCOMPATIBLE");
+    const followups = [];
+    for (const date of (input.demoDates || []).slice(1)) {
+      if (!findMatchingTeachers({ ...input, date }, [{ ...teacherSnap.data(), id: input.teacherId }]).length) throw new Error("TEACHER_INCOMPATIBLE");
+      const existing = teacherSessionsSnap.docs.find(doc => doc.data().batchId === batchId && isSameScheduledOccurrence(doc.data(), date, input.slotId, input.startTime));
+      const ref = existing?.ref || adminDb.collection("class_sessions").doc("session_" + stableId(batchId + "_" + date + "_" + input.slotId));
+      const teacherLock = adminDb.collection("teacher_slot_locks").doc(input.teacherId + "_" + date + "_" + input.slotId);
+      const studentLock = adminDb.collection("student_slot_locks").doc(input.studentId + "_" + date + "_" + input.slotId);
+      const [snapshot, tl, sl] = await Promise.all([transaction.get(ref), transaction.get(teacherLock), transaction.get(studentLock)]);
+      for (const lock of [tl, sl]) if (lock.data()?.active && lock.data()?.batchId !== batchId) throw new Error("TEACHER_SLOT_BUSY");
+      for (const doc of [...teacherSessionsSnap.docs, ...studentSessionsSnap.docs]) {
+        const data = doc.data();
+        if (data.batchId !== batchId && !["ENDED", "COMPLETED", "CANCELLED"].includes(data.status) && isSameScheduledOccurrence(data, date, input.slotId, input.startTime)) throw new Error("TEACHER_SLOT_BUSY");
+      }
+      followups.push({ date, ref, snapshot, teacherLock, studentLock });
+    }
     const capacity = input.demoType === "GROUP" ? GROUP_CAPACITY : INDIVIDUAL_CAPACITY;
     const batch = batchSnap.data() || {};
     const matchingSession = teacherSessionsSnap.docs.find((sessionDoc) => {
@@ -221,7 +243,7 @@ export async function allocateDemoBooking(
       const currentTeacherId = String(batch.teacherId || batch.teacherUid || "");
       const currentClassNumber = Number(batch.classNumber ?? String(batch.grade || "").match(/\d+/)?.[0]);
       const currentStudentIds = Array.isArray(batch.studentIds) ? batch.studentIds : [];
-      const currentCount = Number(batch.enrolledCount ?? currentStudentIds.length);
+      const currentCount = Math.max(Number(batch.enrolledCount ?? 0), currentStudentIds.length);
       const batchSubjects = Array.isArray(batch.subjects)
         ? batch.subjects.map(String)
         : [String(batch.subject || "")];
@@ -244,7 +266,8 @@ export async function allocateDemoBooking(
         batch.isActive === false ||
         batch.status === "CANCELLED" ||
         batch.status === "INACTIVE" ||
-        currentCount >= Math.min(Number(batch.capacity ?? capacity), capacity) ||
+        batch.status === "COMPLETED" ||
+        currentCount >= Math.min(Number(batch.capacity ?? batch.maxStudents ?? capacity), capacity) ||
         enrollmentSnap.exists
       ) {
         throw new Error(enrollmentSnap.exists ? "STUDENT_ALREADY_IN_BATCH" : "BATCH_FULL");
@@ -259,7 +282,7 @@ export async function allocateDemoBooking(
       }
       if (
         !batch.programId &&
-        input.subjects.some((subject) => !batchSubjects.some((existing: string) => normalizeSubject(existing) === normalizeSubject(subject)))
+        (input.subjects.some((subject) => !batchSubjects.some((existing: string) => normalizeSubject(existing) === normalizeSubject(subject))) || batchSubjects.some((subject: string) => !input.subjects.some(existing => normalizeSubject(existing) === normalizeSubject(subject))))
       ) {
         throw new Error("BATCH_INCOMPATIBLE");
       }
@@ -282,12 +305,12 @@ export async function allocateDemoBooking(
     const currentStudentIds = Array.isArray(batch.studentIds)
       ? batch.studentIds.filter((id: unknown): id is string => typeof id === "string")
       : [];
-    const currentCount = Number(batch.enrolledCount ?? currentStudentIds.length);
+    const currentCount = Math.max(Number(batch.enrolledCount ?? 0), currentStudentIds.length);
     const studentIds = currentStudentIds.includes(input.studentId)
       ? currentStudentIds
       : [...currentStudentIds, input.studentId];
     const enrolledCount = currentCount + (currentStudentIds.includes(input.studentId) ? 0 : 1);
-    const bookingStatus = input.finalPrice === 0 ? "CONFIRMED" : "PAYMENT_PENDING";
+    const bookingStatus = input.finalPrice === 0 ? "ALLOCATED" : "PAYMENT_PENDING";
     const confirmedTrial = input.paymentStatus === "NOT_REQUIRED";
     const scheduledAt = Timestamp.fromDate(
       new Date(`${input.date}T${input.startTime}:00+05:30`),
@@ -320,6 +343,8 @@ export async function allocateDemoBooking(
         timeSlot: `${input.startTime}–${input.endTime}`,
       }),
       capacity,
+      maxStudents: capacity,
+      planType: input.programId === "ALL_SUBJECTS" ? "COMBO" : input.programId === "MATH_ONLY" ? "MATH" : "ENGLISH",
       enrolledCount,
       studentIds,
       isActive: true,
@@ -374,7 +399,33 @@ export async function allocateDemoBooking(
       ...((sessionSnap?.exists) ? {} : { createdAt: FieldValue.serverTimestamp() }),
     }, { merge: true });
 
+    const sessionIds = [sessionId, ...followups.map(entry => entry.ref.id)];
+    transaction.set(sessionRef, { slotId: input.slotId, demoSessionIndex: 0, demoSessionCount: sessionIds.length }, { merge: true });
+    followups.forEach((entry, index) => {
+      transaction.set(entry.ref, {
+        id: entry.ref.id, type: "DEMO", batchId, teacherId: input.teacherId,
+        ...(confirmedTrial ? { studentIds: FieldValue.arrayUnion(input.studentId) } : entry.snapshot.exists ? {} : { studentIds: [] }),
+        title: "Class " + input.classNumber + " ? " + input.subjects.join(" + "),
+        subject: input.subjects.join(" + "), classNumber: input.classNumber,
+        date: entry.date, slotId: input.slotId, startTime: input.startTime, endTime: input.endTime,
+        scheduledAt: Timestamp.fromDate(new Date(entry.date + "T" + input.startTime + ":00+05:30")),
+        status: entry.snapshot.data()?.status || "SCHEDULED", demoSessionIndex: index + 1, demoSessionCount: sessionIds.length,
+        livekitRoomName: entry.snapshot.data()?.livekitRoomName || "blanklearn_" + entry.ref.id,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      for (const ref of [entry.teacherLock, entry.studentLock]) transaction.set(ref, { batchId, active: true, date: entry.date, slotId: input.slotId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+    transaction.set(studentRef, {
+      grade: "Class " + input.classNumber,
+      selectedPlan: input.programId === "ALL_SUBJECTS" ? "COMBO" : input.programId === "MATH_ONLY" ? "MATH" : "ENGLISH",
+      selectedSubjects: input.subjects, enrollmentStatus: confirmedTrial ? "DEMO_ALLOCATED" : "DEMO_BOOKED",
+      demoStatus: confirmedTrial ? "ACTIVE" : "BOOKED", demoBatchId: batchId, activeBatchId: confirmedTrial ? batchId : null,
+      demoBookingId: bookingId, subscriptionStatus: "NONE", updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    transaction.set(batchRef.collection("members").doc(input.studentId), { studentId: input.studentId, memberType: "DEMO", status: confirmedTrial ? "ACTIVE" : "PENDING_PAYMENT" }, { merge: true });
     transaction.set(bookingRef, {
+      sessionIds, demoSessionIds: sessionIds, demoSessionCount: sessionIds.length,
+      allocationStatus: "ALLOCATED",
       id: bookingId,
       studentId: input.studentId,
       parentId: input.parentId ?? null,
@@ -411,6 +462,7 @@ export async function allocateDemoBooking(
         teacherId: input.teacherId,
         sessionId,
         bookingId,
+        sessionIds,
         status: "TRIAL",
         membershipStatus: "TRIAL",
         paymentStatus: "NOT_REQUIRED",
@@ -473,7 +525,7 @@ export async function confirmDemoBookingPayment({
 
     transaction.update(bookingRef, {
       paymentStatus: "PAID",
-      status: "CONFIRMED",
+      status: "ALLOCATED",
       membershipStatus: "TRIAL",
       razorpayPaymentId,
       ...(razorpaySignature ? { razorpaySignature } : {}),
@@ -506,6 +558,8 @@ export async function confirmDemoBookingPayment({
         : FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
+    transaction.set(adminDb.collection("students").doc(studentId), { enrollmentStatus: "DEMO_ALLOCATED", demoStatus: "ACTIVE", activeBatchId: batchId, demoBatchId: batchId, demoBookingId: bookingId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    transaction.set(adminDb.collection("batches").doc(batchId).collection("members").doc(studentId), { studentId, memberType: "DEMO", status: "ACTIVE" }, { merge: true });
     sessionSnaps.forEach((sessionSnapshot: FirebaseFirestore.DocumentSnapshot, index: number) => {
       const ids = Array.isArray(sessionSnapshot.data()?.studentIds) ? sessionSnapshot.data()!.studentIds.filter((id: unknown): id is string => typeof id === "string") : [];
       transaction.update(sessionRefs[index], {
@@ -587,6 +641,8 @@ export async function activateTrialMembershipPurchase({
       subscriptionExpiresAt: Timestamp.fromDate(expiresAt),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
+    transaction.set(adminDb.collection("students").doc(studentId), { enrollmentStatus: "REGULAR", subscriptionStatus: "ACTIVE", activeBatchId: batchId, demoBatchId: batchId, subscriptionExpiresAt: Timestamp.fromDate(expiresAt), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    transaction.set(adminDb.collection("batches").doc(batchId).collection("members").doc(studentId), { studentId, memberType: "REGULAR", status: "ACTIVE" }, { merge: true });
     return { alreadyActive: false, planType, expiresAt };
   });
 }

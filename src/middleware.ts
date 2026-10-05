@@ -9,6 +9,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // The Cloud Run deployment exposes API routes only; web pages stay on the web host.
+  if (process.env.BACKEND_ONLY === "true") {
+    return NextResponse.json({ message: "Not found" }, { status: 404 });
+  }
+
   // =========================================================
   // PUBLIC ROUTES
   // =========================================================

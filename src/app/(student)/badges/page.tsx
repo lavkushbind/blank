@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
@@ -23,7 +24,7 @@ export default function StudentBadgesPage() {
       setLoading(true);
       try {
         const response = await fetch("/api/student-badges", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
-        const result = await response.json();
+        const result = await readApiResponse(response);
         if (!response.ok || !result.success) throw new Error(result.message || "Badges could not be loaded.");
         if (active) { setCoins(result.coins); setBadges(result.badges); }
       } catch (error) { if (active) setMessage(error instanceof Error ? error.message : "Badges could not be loaded."); }
@@ -37,7 +38,7 @@ export default function StudentBadgesPage() {
     setBusy(badge.id); setMessage("");
     try {
       const response = await fetch("/api/student-badges", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ badgeId: badge.id }) });
-      const result = await response.json();
+      const result = await readApiResponse(response);
       if (!response.ok || !result.success) throw new Error(result.message || "Badge could not be unlocked.");
       setCoins(result.coins);
       setBadges((items) => items.map((item) => item.id === badge.id ? { ...item, unlocked: true } : item));

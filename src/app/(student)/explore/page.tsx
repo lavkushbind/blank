@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
@@ -36,7 +37,7 @@ function ExploreBatchesContent() {
       if (!user) return;
       try {
         const response = await fetch("/api/student-batches", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
-        const result = await response.json();
+        const result = await readApiResponse(response);
         if (result.success) setEnrolledBatches(result.batches || []);
       } catch (error) { console.error("Student batches could not be loaded", error); }
     });
@@ -53,7 +54,7 @@ function ExploreBatchesContent() {
       const user = auth.currentUser;
       if (!user) { setMessage("Sign in to send a batch request."); return; }
       const response = await fetch("/api/batch-requests", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ programId, classNumber, board, preferredTime, note }) });
-      const result = await response.json();
+      const result = await readApiResponse(response);
       if (!response.ok || !result.success) throw new Error(result.message || "Request could not be sent.");
       setMessage("Request sent. We’ll match it with a suitable batch and contact you."); setOpen(false);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Request could not be sent."); }

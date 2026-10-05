@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import React, { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -28,7 +29,7 @@ export default function TeacherChatPage({ params }: { params: Promise<{ id: stri
       setLoading(true); setError("");
       try {
         const response = await fetch(`/api/teacher-chat/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
-        const data = await response.json() as ChatData;
+        const data = await readApiResponse(response) as ChatData;
         if (!response.ok || !data.success) throw new Error(data.message || "Could not open this conversation.");
         if (!cancelled) { setStudent(data.student); setMessages(data.messages || []); }
       } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : "Could not load conversation."); }
@@ -46,7 +47,7 @@ export default function TeacherChatPage({ params }: { params: Promise<{ id: stri
     setSending(true); setError("");
     try {
       const response = await fetch(`/api/teacher-chat/${encodeURIComponent(id)}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ text }) });
-      const data = await response.json();
+      const data = await readApiResponse(response);
       if (!response.ok || !data.success) throw new Error(data.message || "Message could not be sent.");
       setMessages((current) => [...current, data.message]); setInput("");
     } catch (e) { setError(e instanceof Error ? e.message : "Message could not be sent."); }

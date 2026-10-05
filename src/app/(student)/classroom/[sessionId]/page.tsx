@@ -13,6 +13,10 @@ type SessionStatus =
   | "SCHEDULED"
   | "PREPARING"
   | "OPEN_FOR_JOIN"
+  | "PAUSED"
+  | "TECHNICAL_ISSUE"
+  | "PROCESSING"
+  | "COMPLETED"
   | "LIVE"
   | "ENDED"
   | "CANCELLED";
@@ -148,7 +152,7 @@ export default function StudentClassroomPage() {
     const completedAt = data.session.demoCompletedAt ? new Date(data.session.demoCompletedAt).getTime() : 0;
     setOfferEndsAt(data.session.isDemo && data.session.demoStatus === "COMPLETED" && completedAt > 0 ? completedAt + 72 * 60 * 60 * 1000 : null);
 
-    return data.session.studentJoinAllowed ? data.session.status : "SCHEDULED";
+    return data.session;
   }, [getIdToken, sessionId]);
 
   const joinClass = useCallback(async () => {
@@ -158,12 +162,9 @@ export default function StudentClassroomPage() {
     setError("");
 
     try {
-      const currentStatus = await fetchSessionStatus();
+      const current = await fetchSessionStatus();
 
-      if (
-        currentStatus !== "OPEN_FOR_JOIN" &&
-        currentStatus !== "LIVE"
-      ) {
+      if (!current.studentJoinAllowed) {
         return;
       }
 
@@ -264,12 +265,9 @@ export default function StudentClassroomPage() {
     const interval = window.setInterval(() => {
       void (async () => {
         try {
-          const status = await fetchSessionStatus();
+          const current = await fetchSessionStatus();
 
-          if (
-            status === "OPEN_FOR_JOIN" ||
-            status === "LIVE"
-          ) {
+          if (current.studentJoinAllowed) {
             await joinClass();
           }
         } catch (err) {
@@ -292,7 +290,7 @@ export default function StudentClassroomPage() {
     if (!token || !sessionId || sessionStatus === "ENDED" || sessionStatus === "CANCELLED") return;
     const interval = window.setInterval(() => {
       void fetchSessionStatus().then((status) => {
-        if (status === "ENDED") {
+        if (["ENDED", "COMPLETED", "PROCESSING", "CANCELLED"].includes(status.status)) {
           setToken("");
           setServerUrl("");
         }
@@ -383,11 +381,9 @@ export default function StudentClassroomPage() {
   }
 
   const isOpen =
-    sessionStatus === "OPEN_FOR_JOIN" || sessionStatus === "LIVE";
+    joinAllowed;
 
-  const isTerminal =
-    sessionStatus === "ENDED" ||
-    sessionStatus === "CANCELLED";
+  const isTerminal = ["ENDED", "COMPLETED", "PROCESSING", "CANCELLED"].includes(sessionStatus);
 
   if (isTerminal) {
     if (sessionStatus === "ENDED" && isDemo) {
@@ -398,7 +394,7 @@ export default function StudentClassroomPage() {
               <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-600"><Check size={24} /></div>
               <p className="mt-5 text-xs font-black uppercase tracking-[.18em] text-indigo-600">Your 3-day demo</p>
               <h1 className="mt-2 text-3xl font-black">Day {demoSessionIndex + 1} complete</h1>
-              <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-600">Thanks for joining today. Your demo continues with one live class each day. Open your next classroom from the dashboard when it is time.</p>
+              <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-600">Thanks for joining today. Your demo continues with one live class each day. Join your next classroom from the dashboard when your teacher starts it.</p>
               <div className="mt-7 flex items-center justify-center gap-2 rounded-2xl bg-indigo-50 px-4 py-3 text-sm font-bold text-indigo-800"><CalendarDays size={17} /> {demoSessionCount - demoSessionIndex - 1} demo session{demoSessionCount - demoSessionIndex - 1 === 1 ? "" : "s"} remaining</div>
               <button type="button" onClick={() => router.push("/hub")} className="mt-5 w-full rounded-xl bg-slate-950 px-5 py-3.5 text-sm font-black text-white">Back to your dashboard</button>
             </section>

@@ -4,7 +4,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase/client";
 import { platformRequest } from "@/lib/platform/client";
 type Message = {id:string;text:string;sender:string;at:number};
-const answers = {"Joining a class":"Students can join at the scheduled IST time after the teacher opens the class. Teachers can open their classroom from the dashboard.","Demo & pricing":"Your demo schedule appears on your dashboard. After the final demo session, eligible learning plans and savings become available.","Payment help":"Send your booking ID and describe the issue below. Never share your password, OTP, card number or payment credentials."};
+const answers = {"Joining a class":"Students can join as soon as their teacher starts the class, regardless of the scheduled time. Teachers can start their assigned classroom from the dashboard.","Demo & pricing":"Your demo schedule appears on your dashboard. After the final demo session, eligible learning plans and savings become available.","Payment help":"Send your booking ID and describe the issue below. Never share your password, OTP, card number or payment credentials."};
 export function HelpChat({uid}:{uid?:string}) {
   const [messages,setMessages]=useState<Message[]>([]),[draft,setDraft]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false),[ready,setReady]=useState(false),[answer,setAnswer]=useState(""),[older,setOlder]=useState<number|null>(null);
   const requestId=useRef("");

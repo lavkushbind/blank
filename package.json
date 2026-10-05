@@ -9,7 +9,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "deploy:backend": "node scripts/deploy-cloud-run.mjs",
+    "test:backend-deploy": "node --test scripts/test-cloud-run.cjs"
   },
   "dependencies": {
     "@genkit-ai/googleai": "^1.8.0",

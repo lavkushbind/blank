@@ -1,411 +1,593 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
+
+import {
+  useParams,
+  useRouter,
+} from "next/navigation";
+
+import {
+  onAuthStateChanged,
+} from "firebase/auth";
+
 import {
   AlertCircle,
   ArrowLeft,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 
-import { auth } from "@/lib/firebase/client";
+import {
+  auth,
+} from "@/lib/firebase/client";
+
 import LiveKitClassroom from "@/components/classroom/LiveKitClassroom";
 
-type SessionStatus =
-  | "SCHEDULED"
-  | "PREPARING"
-  | "OPEN_FOR_JOIN"
-  | "LIVE"
-  | "ENDED"
-  | "CANCELLED";
+/* =========================================================
+   TYPES
+========================================================= */
 
 type TeacherSession = {
   id: string;
-  status: SessionStatus;
+
   role: "TEACHER";
+
   participantName: string;
+
   title?: string;
+
   subject?: string;
+
   className?: string;
 };
 
 type TokenResponse = {
   success?: boolean;
+
   error?: string;
+
   message?: string;
+
   token?: string;
+
   serverUrl?: string;
+
   roomName?: string;
+
   participantName?: string;
+
   session?: {
     id?: string;
-    status?: string;
+
     role?: string;
+
     participantName?: string;
+
     title?: string;
+
     subject?: string;
+
     className?: string;
   };
 };
 
-type StatusResponse = {
-  success?: boolean;
-  error?: string;
-  message?: string;
-  session?: {
-    id?: string;
-    status?: string;
-  };
-};
+/* =========================================================
+   READ API RESPONSE
+========================================================= */
 
-const VALID_STATUSES: SessionStatus[] = [
-  "SCHEDULED",
-  "PREPARING",
-  "OPEN_FOR_JOIN",
-  "LIVE",
-  "ENDED",
-  "CANCELLED",
-];
+async function readJson(
+  response: Response,
+) {
+  const text =
+    await response.text();
 
-function isSessionStatus(value: unknown): value is SessionStatus {
-  return (
-    typeof value === "string" &&
-    VALID_STATUSES.includes(value as SessionStatus)
-  );
-}
+  if (!text) {
+    return {};
+  }
 
-async function readJson(response: Response) {
-  const text = await response.text();
   try {
-    return text ? JSON.parse(text) : {};
+    return JSON.parse(text);
   } catch {
     return {};
   }
 }
 
+/* =========================================================
+   PAGE
+========================================================= */
+
 export default function TeacherStudioPage() {
-  const params = useParams<{ sessionId: string }>();
-  const router = useRouter();
+  const params =
+    useParams<{
+      sessionId: string;
+    }>();
 
-  const sessionId = String(params?.sessionId || "");
+  const router =
+    useRouter();
 
-  const [session, setSession] = useState<TeacherSession | null>(null);
-  const [token, setToken] = useState("");
-  const [serverUrl, setServerUrl] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [error, setError] = useState("");
+  const sessionId =
+    String(
+      params?.sessionId ||
+        "",
+    );
 
-  const loadClassroom = useCallback(
-    async (user: NonNullable<typeof auth.currentUser>) => {
-      setLoading(true);
-      setError("");
+  const [
+    session,
+    setSession,
+  ] =
+    useState<TeacherSession | null>(
+      null,
+    );
 
-      try {
-        if (!sessionId) {
-          throw new Error("Invalid class session.");
-        }
+  const [
+    token,
+    setToken,
+  ] = useState("");
 
-        const idToken = await user.getIdToken();
+  const [
+    serverUrl,
+    setServerUrl,
+  ] = useState("");
 
-        const response = await fetch(
-          `/api/livekit/token?sessionId=${encodeURIComponent(sessionId)}`,
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${idToken}`,
-            },
-            cache: "no-store",
-          },
-        );
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-        const data: TokenResponse = await readJson(response);
+  const [
+    error,
+    setError,
+  ] = useState("");
 
-        if (!response.ok || !data.success) {
-          throw new Error(
-            data.message || data.error || "Unable to open classroom.",
-          );
-        }
+  /* =======================================================
+     DIRECT CLASSROOM LOAD
 
-        if (!data.token || !data.serverUrl) {
-          throw new Error(
-            "Live classroom credentials were not returned.",
-          );
-        }
+     NO:
+     - status check
+     - date check
+     - time check
+     - ended check
+     - completed check
+     - scheduled check
+     - processing check
 
-        if (data.session?.role !== "TEACHER") {
-          throw new Error(
-            "Teacher access is required for this classroom.",
-          );
-        }
+     ONLY:
+     authentication -> token -> classroom
+  ======================================================= */
 
-        const status = data.session?.status;
-        if (!isSessionStatus(status)) {
-          throw new Error("Invalid classroom session status.");
-        }
+  const loadClassroom =
+    useCallback(
+      async (
+        user: NonNullable<
+          typeof auth.currentUser
+        >,
+      ) => {
+        setLoading(true);
 
-        let classroomStatus = status;
-        if (["SCHEDULED", "PREPARING", "OPEN_FOR_JOIN"].includes(status)) {
-          const startResponse = await fetch(
-            `/api/class_sessions/${encodeURIComponent(sessionId)}/status`,
-            {
-              method: "PATCH",
-              headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ status: "LIVE" }),
-            },
-          );
-          const startData: StatusResponse = await readJson(startResponse);
-          if (!startResponse.ok || !startData.success) {
-            throw new Error(startData.message || startData.error || "Unable to start this class.");
-          }
-          classroomStatus = "LIVE";
-        }
+        setError("");
 
-        setSession({
-          id: sessionId,
-          status: classroomStatus,
-          role: "TEACHER",
-          participantName:
-            data.session?.participantName ||
-            data.participantName ||
-            user.displayName ||
-            "Teacher",
-          title: data.session?.title,
-          subject: data.session?.subject,
-          className: data.session?.className,
-        });
-
-        setToken(data.token);
-        setServerUrl(data.serverUrl);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "";
-        if (/Teacher cannot join a ENDED session\./i.test(message)) {
-          setSession({
-            id: sessionId,
-            status: "ENDED",
-            role: "TEACHER",
-            participantName: user.displayName || "Teacher",
-          });
-          setToken("");
-          setServerUrl("");
-          setError("");
-          return;
-        }
-
-        console.error("Teacher classroom loading error:", err);
-        setSession(null);
         setToken("");
+
         setServerUrl("");
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to open classroom.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [sessionId],
-  );
+
+        try {
+          if (!sessionId) {
+            throw new Error(
+              "Invalid classroom id.",
+            );
+          }
+
+          /*
+           * Firebase login token.
+           */
+          const idToken =
+            await user.getIdToken(
+              true,
+            );
+
+          /*
+           * =================================================
+           * DIRECT TOKEN REQUEST
+           * =================================================
+           *
+           * No session status request.
+           * No PATCH request.
+           * No timing validation.
+           *
+           * Just request LiveKit access directly.
+           */
+
+          const response =
+            await fetch(
+              "/api/livekit/token",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  Authorization:
+                    `Bearer ${idToken}`,
+
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify(
+                    {
+                      sessionId,
+                    },
+                  ),
+
+                cache:
+                  "no-store",
+              },
+            );
+
+          const data: TokenResponse =
+            await readJson(
+              response,
+            );
+
+          /*
+           * We only need LiveKit credentials.
+           */
+
+          if (
+            !response.ok
+          ) {
+            console.error(
+              "LiveKit token API failed:",
+              {
+                status:
+                  response.status,
+
+                data,
+              },
+            );
+
+            throw new Error(
+              data.message ||
+                data.error ||
+                `LiveKit token request failed (${response.status}).`,
+            );
+          }
+
+          if (
+            !data.token
+          ) {
+            throw new Error(
+              "LiveKit token missing.",
+            );
+          }
+
+          if (
+            !data.serverUrl
+          ) {
+            throw new Error(
+              "LiveKit server URL missing.",
+            );
+          }
+
+          /*
+           * No role/status validation here.
+           *
+           * Teacher is already authenticated
+           * through teacher studio.
+           */
+
+          setSession({
+            id:
+              data.session?.id ||
+              sessionId,
+
+            role:
+              "TEACHER",
+
+            participantName:
+              data.session
+                ?.participantName ||
+              data.participantName ||
+              user.displayName ||
+              user.email?.split(
+                "@",
+              )[0] ||
+              "Teacher",
+
+            title:
+              data.session
+                ?.title,
+
+            subject:
+              data.session
+                ?.subject,
+
+            className:
+              data.session
+                ?.className,
+          });
+
+          setToken(
+            data.token,
+          );
+
+          setServerUrl(
+            data.serverUrl,
+          );
+        } catch (
+          classroomError
+        ) {
+          console.error(
+            "Teacher classroom error:",
+            classroomError,
+          );
+
+          setSession(
+            null,
+          );
+
+          setToken("");
+
+          setServerUrl("");
+
+          setError(
+            classroomError instanceof
+              Error
+              ? classroomError.message
+              : "Unable to open classroom.",
+          );
+        } finally {
+          setLoading(
+            false,
+          );
+        }
+      },
+      [sessionId],
+    );
+
+  /* =======================================================
+     AUTH
+  ======================================================= */
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (!user) {
-        setLoading(false);
-        setError("Teacher login is required.");
-        return;
-      }
+    const unsubscribe =
+      onAuthStateChanged(
+        auth,
+        (user) => {
+          if (!user) {
+            setLoading(
+              false,
+            );
 
-      void loadClassroom(user);
-    });
+            setError(
+              "Teacher login is required.",
+            );
 
-    return () => unsubscribe();
+            return;
+          }
+
+          /*
+           * Login found ->
+           * DIRECTLY load classroom.
+           */
+
+          void loadClassroom(
+            user,
+          );
+        },
+      );
+
+    return () => {
+      unsubscribe();
+    };
   }, [loadClassroom]);
 
-  const updateStatus = useCallback(
-    async (
-      nextStatus: "OPEN_FOR_JOIN" | "LIVE" | "ENDED",
-    ) => {
-      const user = auth.currentUser;
+  /* =======================================================
+     LEAVE
 
-      if (!user) {
-        setError("Teacher login is required.");
-        return false;
-      }
+     Leave only navigates away.
+     Classroom is NOT ended.
+  ======================================================= */
 
-      setActionLoading(true);
-      setError("");
+  function handleLeave() {
+    router.push(
+      "/dashboard",
+    );
+  }
 
-      try {
-        const idToken = await user.getIdToken();
+  /* =======================================================
+     END CLASS
 
-        const response = await fetch(
-          `/api/class_sessions/${encodeURIComponent(sessionId)}/status`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${idToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              status: nextStatus,
-            }),
-          },
-        );
+     For now we intentionally DO NOT mark
+     the session ENDED.
 
-        const data: StatusResponse = await readJson(response);
+     This means teacher can leave and
+     open the same classroom again.
+  ======================================================= */
 
-        if (!response.ok || !data.success) {
-          throw new Error(
-            data.message ||
-              data.error ||
-              "Unable to update class status.",
-          );
-        }
+  function handleEndClass() {
+    router.push(
+      "/dashboard",
+    );
+  }
 
-        const returnedStatus = data.session?.status;
-        const finalStatus = isSessionStatus(returnedStatus)
-          ? returnedStatus
-          : nextStatus;
+  /* =======================================================
+     RETRY
+  ======================================================= */
 
-        setSession((current) =>
-          current ? { ...current, status: finalStatus } : current,
-        );
+  async function handleRetry() {
+    const user =
+      auth.currentUser;
 
-        return true;
-      } catch (err) {
-        console.error("Class status update error:", err);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to update class status.",
-        );
-        return false;
-      } finally {
-        setActionLoading(false);
-      }
-    },
-    [sessionId],
-  );
+    if (!user) {
+      setError(
+        "Teacher login is required.",
+      );
 
-  async function handleEndClass() {
-    if (
-      !session ||
-      actionLoading ||
-      session.status !== "LIVE"
-    ) {
       return;
     }
 
-    const success = await updateStatus("ENDED");
-
-    if (success) {
-      router.push(
-        `/post-class/${encodeURIComponent(sessionId)}`,
-      );
-    }
+    await loadClassroom(
+      user,
+    );
   }
 
-  function handleLeave() {
-    router.push("/batches");
-  }
+  /* =======================================================
+     LOADING
+  ======================================================= */
 
   if (loading) {
     return (
       <StudioState>
-        <Loader2 size={32} className="animate-spin text-blue-400" />
-        <p className="mt-4 text-sm font-bold text-white/50">
-          Opening classroom...
+        <div className="relative grid h-16 w-16 place-items-center rounded-[22px] border border-white/10 bg-white/[0.06]">
+          <div className="absolute inset-0 rounded-[22px] bg-blue-500/15 blur-xl" />
+
+          <Loader2
+            size={28}
+            className="relative animate-spin text-blue-400"
+          />
+        </div>
+
+        <h1 className="mt-6 text-xl font-black tracking-tight text-white">
+          Opening classroom
+        </h1>
+
+        <p className="mt-2 max-w-sm text-center text-sm leading-6 text-white/40">
+          Connecting you
+          directly to the
+          classroom.
         </p>
       </StudioState>
     );
   }
 
-  if (session?.status === "ENDED") {
+  /* =======================================================
+     ERROR
+  ======================================================= */
+
+  if (
+    error ||
+    !session ||
+    !token ||
+    !serverUrl
+  ) {
     return (
       <StudioState>
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-white/70">
-          <AlertCircle size={26} />
+        <div className="grid h-16 w-16 place-items-center rounded-[22px] border border-red-400/10 bg-red-500/10 text-red-400">
+          <AlertCircle
+            size={28}
+          />
         </div>
-        <h1 className="mt-5 text-xl font-black text-white">This class has ended</h1>
-        <p className="mt-2 max-w-md text-center text-sm leading-6 text-white/50">
-          This classroom is closed, so it can’t be joined again. You can return to your dashboard or open the class follow-up.
+
+        <h1 className="mt-6 text-xl font-black tracking-tight text-white">
+          Classroom connection
+          failed
+        </h1>
+
+        <p className="mt-2 max-w-md text-center text-sm leading-6 text-white/45">
+          {error ||
+            "Live classroom credentials are unavailable."}
         </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <button type="button" onClick={() => router.push("/dashboard")} className="rounded-xl border border-white/15 px-5 py-3 text-sm font-bold text-white/80 hover:bg-white/5">
+
+        <div className="mt-7 flex flex-wrap justify-center gap-3">
+          <button
+            type="button"
+            onClick={() =>
+              void handleRetry()
+            }
+            className="inline-flex items-center gap-2 rounded-[14px] bg-blue-600 px-5 py-3 text-sm font-black text-white transition hover:bg-blue-500"
+          >
+            <RefreshCw
+              size={16}
+            />
+
+            Retry
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                "/dashboard",
+              )
+            }
+            className="inline-flex items-center gap-2 rounded-[14px] border border-white/10 bg-white/[0.05] px-5 py-3 text-sm font-bold text-white/70 transition hover:bg-white/10"
+          >
+            <ArrowLeft
+              size={16}
+            />
+
             Dashboard
           </button>
-          <button type="button" onClick={() => router.push(`/post-class/${encodeURIComponent(sessionId)}`)} className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-500">
-            Class follow-up
-          </button>
         </div>
       </StudioState>
     );
   }
 
-  if (error && (!session || !token || !serverUrl)) {
-    return (
-      <StudioState>
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 text-red-400">
-          <AlertCircle size={28} />
-        </div>
-        <h1 className="mt-5 text-xl font-black text-white">
-          Unable to open classroom
-        </h1>
-        <p className="mt-2 max-w-md text-center text-sm leading-6 text-white/45">
-          {error}
-        </p>
-        <button
-          type="button"
-          onClick={() => router.back()}
-          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-black text-slate-950"
-        >
-          <ArrowLeft size={16} />
-          Go Back
-        </button>
-      </StudioState>
-    );
-  }
+  /* =======================================================
+     DIRECT LIVEKIT CLASSROOM
+  ======================================================= */
 
-  if (!session || !token || !serverUrl) {
-    return (
-      <StudioState>
-        <p className="text-sm font-bold text-white/50">
-          Classroom information is unavailable.
-        </p>
-      </StudioState>
-    );
-  }
-
-return (
+  return (
     <div className="relative min-h-screen bg-slate-950">
       <LiveKitClassroom
         token={token}
-        serverUrl={serverUrl}
+        serverUrl={
+          serverUrl
+        }
         role="TEACHER"
-        sessionId={sessionId}
-        className={session.className}
-        subject={session.subject}
-        lessonTitle={session.title}
-        teacherName={session.participantName}
-        onLeave={handleLeave}
-        onEndClass={handleEndClass}
+        sessionId={
+          sessionId
+        }
+        className={
+          session.className
+        }
+        subject={
+          session.subject
+        }
+        lessonTitle={
+          session.title
+        }
+        teacherName={
+          session.participantName
+        }
+        onLeave={
+          handleLeave
+        }
+        onEndClass={
+          handleEndClass
+        }
       />
-
-      {error && (
-        <div className="fixed bottom-24 left-1/2 z-[60] w-[calc(100%-32px)] max-w-lg -translate-x-1/2 rounded-2xl border border-red-400/20 bg-red-950/95 p-4 text-sm font-semibold text-red-100 shadow-2xl">
-          {error}
-        </div>
-      )}
     </div>
   );
 }
 
-function StudioState({ children }: { children: ReactNode }) {
+/* =========================================================
+   STATE UI
+========================================================= */
+
+function StudioState({
+  children,
+}: {
+  children: ReactNode;
+}) {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-6">
-      {children}
+    <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[#07101f] px-6">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute left-1/2 top-[-220px] h-[520px] w-[700px] -translate-x-1/2 rounded-full bg-blue-600/10 blur-[120px]" />
+
+        <div className="absolute bottom-[-260px] right-[-100px] h-[480px] w-[480px] rounded-full bg-indigo-500/10 blur-[110px]" />
+      </div>
+
+      <div className="relative z-10 flex w-full max-w-xl flex-col items-center">
+        {children}
+      </div>
     </main>
   );
 }

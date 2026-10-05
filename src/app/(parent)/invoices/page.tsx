@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
@@ -19,7 +20,7 @@ export default function ParentInvoicesPage() {
     (async () => {
       try {
         const response = await fetch("/api/student-payments", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
-        const result = await response.json();
+        const result = await readApiResponse(response);
         if (!response.ok || !result.success) throw new Error(result.message || "Payment history could not be loaded.");
         if (active) setPayments(result.payments || []);
       } catch (cause) { if (active) setError(cause instanceof Error ? cause.message : "Payment history could not be loaded."); }

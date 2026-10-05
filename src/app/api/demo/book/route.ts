@@ -1,3 +1,4 @@
+import { FieldValue } from "firebase-admin/firestore";
 import { demoPrice } from "@/lib/platform/demo-price";
 import { settings } from "@/lib/platform/server";
 import {
@@ -46,6 +47,7 @@ import type {
 } from "@/lib/config/timeSlots";
 
 type Body = {
+  existingBatchId?: string;
   studentName: string;
 
   classNumber: number;
@@ -209,6 +211,7 @@ export async function POST(
     }
 
     if (
+      !Number.isInteger(classNumber) ||
       classNumber < 1 ||
       classNumber > 10
     ) {
@@ -310,6 +313,8 @@ export async function POST(
       studentSnap.exists
         ? studentSnap.data()
         : {};
+
+    if (["REGULAR", "DEMO_ALLOCATED", "DEMO_ACTIVE"].includes(existingStudent?.enrollmentStatus || "")) return NextResponse.json({ success: false, message: "You already have an allocated demo or regular batch." }, { status: 409 });
 
     /*
      * 5. ENSURE ROLE
@@ -491,31 +496,18 @@ export async function POST(
         if (!availableTeachers.has(teacherId)) consecutiveAvailability.delete(teacherId);
       }
     }
-    const eligibleMatches = matches.filter((match) => consecutiveAvailability.has(match.teacher.id));
+    const eligibleMatches = matches.filter((match) => consecutiveAvailability.has(match.teacher.id) && (!body.existingBatchId || match.existingBatch?.id === body.existingBatchId));
 
     if (eligibleMatches.length === 0) {
-      /*
-       * Don't just say "No teacher".
-       *
-       * Client can call /availability
-       * to get suggestions.
-       */
-
-      return NextResponse.json(
-        {
-          success: false,
-
-          code:
-            "NO_EXACT_MATCH",
-
-          message:
-            "No mentor is available for this exact date and time. Please choose another available slot.",
-
-          suggestionRequired:
-            true,
-        },
-        { status: 409 },
-      );
+      if (body.existingBatchId) return NextResponse.json({ success: false, message: "This batch is no longer available. Choose another slot." }, { status: 409 });
+      const bookingId = "waiting_" + user.uid;
+      await adminDb.runTransaction(async transaction => {
+        const current = await transaction.get(studentRef);
+        if (["REGULAR", "DEMO_ALLOCATED", "DEMO_ACTIVE"].includes(current.data()?.enrollmentStatus)) throw new Error("STUDENT_ALREADY_ENROLLED");
+        transaction.set(adminDb.collection("demo_bookings").doc(bookingId), { studentId: user.uid, studentName, grade: "Class " + classNumber, classNumber, board, programId, subjects: [...program.subjects], demoType, date, slotId, startTime: slot.startTime, endTime: slot.endTime, batchId: null, teacherId: null, status: "BOOKED", allocationStatus: "PENDING", paymentStatus: "PENDING_ALLOCATION", createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        transaction.set(studentRef, { enrollmentStatus: "DEMO_BOOKED", demoStatus: "BOOKED", grade: "Class " + classNumber, selectedPlan: programId === "ALL_SUBJECTS" ? "COMBO" : programId === "MATH_ONLY" ? "MATH" : "ENGLISH", selectedSubjects: [...program.subjects], demoBookingId: bookingId, demoBatchId: null, activeBatchId: null, subscriptionStatus: "NONE", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      });
+      return NextResponse.json({ success: true, pendingAllocation: true, message: "Demo booked. We're finding a compatible batch for your preferred slot." }, { status: 202 });
     }
 
     /*
@@ -539,6 +531,7 @@ export async function POST(
         const result =
           await allocateDemoBooking(
             {
+              demoDates,
               studentId:
                 user.uid,
 
@@ -602,49 +595,7 @@ export async function POST(
             },
           );
 
-        const sessionIds = [result.sessionId, ...demoDates.slice(1).map((sessionDate) => `demoSession_${result.bookingId}_${sessionDate}_${slotId}`)];
-        const scheduledSessions = demoDates.map((sessionDate, index) => ({
-          id: sessionIds[index], date: sessionDate, index,
-          startTime: slot.startTime, endTime: slot.endTime,
-        }));
-        const classSessions = await adminDb.collection("class_sessions").where("teacherId", "==", match.teacher.id).get();
-        const conflicts = scheduledSessions.slice(1).some((entry) => classSessions.docs.some((sessionDoc) => {
-          const session = sessionDoc.data();
-          return !["ENDED", "COMPLETED", "CANCELLED"].includes(String(session.status || "").toUpperCase()) &&
-            String(session.date || "").slice(0, 10) === entry.date && String(session.slotId || "") === slotId;
-        }));
-        if (conflicts) throw new Error("TEACHER_SLOT_BUSY");
-        const scheduleBatch = adminDb.batch();
-        for (const entry of scheduledSessions) {
-          const sessionRef = adminDb.collection("class_sessions").doc(entry.id);
-          const lockRef = adminDb.collection("teacher_slot_locks").doc(`${match.teacher.id}_${entry.date}_${slotId}`);
-          const studentLockRef = adminDb.collection("student_slot_locks").doc(`${user.uid}_${entry.date}_${slotId}`);
-          const [teacherLock, studentLock] = entry.index === 0 ? [null, null] : await Promise.all([lockRef.get(), studentLockRef.get()]);
-          if ((teacherLock?.exists && teacherLock.data()?.active && teacherLock.data()?.batchId !== result.batchId) || (studentLock?.exists && studentLock.data()?.active && studentLock.data()?.batchId !== result.batchId)) throw new Error("TEACHER_SLOT_BUSY");
-          scheduleBatch.set(sessionRef, {
-            id: entry.id, type: "DEMO", demoBookingId: result.bookingId,
-            demoSessionIds: sessionIds, demoSessionIndex: entry.index, demoSessionCount: 3,
-            batchId: result.batchId, teacherId: match.teacher.id,
-            studentIds: result.paymentStatus === "NOT_REQUIRED" ? [user.uid] : [],
-            title: `Class ${classNumber} · ${program.subjects.join(" + ")}`,
-            subject: program.subjects.join(" + "), className: `Class ${classNumber}`,
-            classNumber, board, programId, date: entry.date, slotId,
-            startTime: entry.startTime, endTime: entry.endTime,
-            scheduledAt: new Date(`${entry.date}T${entry.startTime}:00+05:30`),
-            status: "SCHEDULED", durationMinutes: 60,
-            liveRoomId: `blanklearn_${entry.id}`, livekitRoomName: `blanklearn_${entry.id}`,
-            createdAt: new Date(), updatedAt: new Date(),
-          }, { merge: true });
-          if (entry.index > 0) {
-            scheduleBatch.set(lockRef, { teacherId: match.teacher.id, date: entry.date, slotId, batchId: result.batchId, active: true, createdAt: new Date(), updatedAt: new Date() }, { merge: true });
-            scheduleBatch.set(studentLockRef, { studentId: user.uid, date: entry.date, slotId, batchId: result.batchId, active: true, createdAt: new Date(), updatedAt: new Date() }, { merge: true });
-          }
-        }
-        scheduleBatch.set(adminDb.collection("demo_bookings").doc(result.bookingId), {
-          sessionIds, demoSessionIds: sessionIds, demoSessionCount: 3, updatedAt: new Date(),
-        }, { merge: true });
-        scheduleBatch.set(adminDb.collection("enrollments").doc(`${result.batchId}_${user.uid}`), { sessionIds, updatedAt: new Date() }, { merge: true });
-        await scheduleBatch.commit();
+        const sessionIds = (await adminDb.collection("demo_bookings").doc(result.bookingId).get()).data()?.sessionIds || [result.sessionId];
 
         /*
          * 11. SUCCESS

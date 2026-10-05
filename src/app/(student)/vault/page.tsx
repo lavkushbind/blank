@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
@@ -16,7 +17,7 @@ export default function StudentVaultPage() {
   useEffect(() => {
     if (!user) return;
     let active = true;
-    (async()=>{try{const response=await fetch("/api/student-vault",{headers:{Authorization:`Bearer ${await user.getIdToken()}`},cache:"no-store"});const data=await response.json();if(!response.ok||!data.success)throw new Error(data.message||"Resources could not be loaded.");if(active)setResources(data.resources||[]);}catch(cause){if(active)setError(cause instanceof Error?cause.message:"Resources could not be loaded.");}finally{if(active)setLoading(false);}})();
+    (async()=>{try{const response=await fetch("/api/student-vault",{headers:{Authorization:`Bearer ${await user.getIdToken()}`},cache:"no-store"});const data=await readApiResponse(response);if(!response.ok||!data.success)throw new Error(data.message||"Resources could not be loaded.");if(active)setResources(data.resources||[]);}catch(cause){if(active)setError(cause instanceof Error?cause.message:"Resources could not be loaded.");}finally{if(active)setLoading(false);}})();
     return()=>{active=false;};
   },[user]);
   return <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6"><p className="text-xs font-black uppercase tracking-[.18em] text-blue-700">Your learning library</p><h1 className="mt-2 text-3xl font-black text-slate-950">Class Vault</h1><p className="mt-2 text-sm text-slate-600">Lesson notes and PDFs your teacher has shared with your classes.</p>

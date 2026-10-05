@@ -401,6 +401,9 @@ export async function GET(
       session: {
         id: session.id,
         status,
+        studentJoinAllowed: studentAccess({ ...session, status }).allowed,
+        studentJoinMessage: studentAccess({ ...session, status }).reason,
+        joinPolicy: "TEACHER_CONTROLLED",
         teacherId:
           session.teacherId ||
           session.teacherUid ||
@@ -674,27 +677,23 @@ export async function PATCH(
         FieldValue.serverTimestamp();
     }
 
-    if (nextStatus === "ENDED" && String(session.type || "").toUpperCase() === "DEMO" && session.demoBookingId) {
-      const bookingRef = adminDb.collection("demo_bookings").doc(String(session.demoBookingId));
-      await adminDb.runTransaction(async (transaction) => {
-        const bookingSnapshot = await transaction.get(bookingRef);
-        const booking = bookingSnapshot.data() || {};
-        const sessionIds = getStringArray(booking.sessionIds || session.demoSessionIds || [sessionId]);
-        const completedIds = new Set(getStringArray(booking.completedSessionIds));
-        completedIds.add(sessionId);
-        const allComplete = sessionIds.length >= Number(booking.demoSessionCount || session.demoSessionCount || 1) && sessionIds.every((id) => completedIds.has(id));
-        transaction.update(sessionRef, updateData as FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData>);
-        if (bookingSnapshot.exists) {
-          transaction.update(bookingRef, {
-            completedSessionIds: [...completedIds],
-            demoStatus: allComplete ? "COMPLETED" : "ACTIVE",
-            ...(allComplete && !booking.demoCompletedAt ? { demoCompletedAt: FieldValue.serverTimestamp() } : {}),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        }
-      });
-    } else {
-      await sessionRef.update(updateData);
+    await sessionRef.update(updateData);
+    if (String(session.type || "").toUpperCase() === "DEMO" && ["ENDED", "LIVE", "OPEN_FOR_JOIN"].includes(nextStatus)) {
+      const linked = await adminDb.collection("demo_bookings").where("sessionIds", "array-contains", sessionId).get();
+      for (const snapshot of linked.docs) {
+        await adminDb.runTransaction(async transaction => {
+          const bookingSnap = await transaction.get(snapshot.ref);
+          const booking = bookingSnap.data()!;
+          const studentRef = adminDb.collection("students").doc(booking.studentId);
+          const studentSnap = await transaction.get(studentRef);
+          const ids = getStringArray(booking.sessionIds);
+          const completed = new Set(getStringArray(booking.completedSessionIds));
+          if (nextStatus === "ENDED") completed.add(sessionId);
+          const done = ids.length >= Number(booking.demoSessionCount || 3) && ids.every(id => completed.has(id));
+          transaction.update(snapshot.ref, { completedSessionIds: [...completed], demoStatus: done ? "COMPLETED" : "ACTIVE", ...(done && !booking.demoCompletedAt ? { demoCompletedAt: FieldValue.serverTimestamp() } : {}), updatedAt: FieldValue.serverTimestamp() });
+          if (studentSnap.data()?.demoBookingId === snapshot.id && studentSnap.data()?.enrollmentStatus !== "REGULAR") transaction.set(studentRef, { enrollmentStatus: done ? "DEMO_COMPLETED" : "DEMO_ACTIVE", demoStatus: done ? "COMPLETED" : "ACTIVE", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        });
+      }
     }
 
     return NextResponse.json({

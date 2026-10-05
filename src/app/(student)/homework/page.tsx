@@ -1,4 +1,5 @@
 "use client";
+import { readApiResponse } from "@/lib/api-response";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
@@ -42,7 +43,7 @@ export default function StudentHomeworkPage() {
           fetch("/api/student-batches", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }),
           fetch("/api/homework/submissions", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }),
         ]);
-        const [batchData, submissionData] = await Promise.all([batchResponse.json(), submissionResponse.json()]);
+        const [batchData, submissionData] = await Promise.all([readApiResponse(batchResponse), readApiResponse(submissionResponse)]);
         if (!batchResponse.ok || !batchData.success) throw new Error(batchData.message || "Your classes could not be loaded.");
         if (!submissionResponse.ok || !submissionData.success) throw new Error(submissionData.message || "Homework could not be loaded.");
         if (active) {
@@ -74,12 +75,12 @@ export default function StudentHomeworkPage() {
         headers: { Authorization: `Bearer ${await user.getIdToken()}` },
         body: form,
       });
-      const result = await response.json();
+      const result = await readApiResponse(response);
       if (!response.ok || !result.success) throw new Error(result.message || "Homework could not be submitted.");
       setTaskTitle(""); setNotesText(""); setFile(null);
       setSuccess("Homework sent to your batch teacher for review.");
       const refresh = await fetch("/api/homework/submissions", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
-      const data = await refresh.json();
+      const data = await readApiResponse(refresh);
       if (data.success) setSubmissions(data.submissions || []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Homework could not be submitted.");
